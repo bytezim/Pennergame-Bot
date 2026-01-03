@@ -1,0 +1,208 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: FastAPI Server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/server.py",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: FastAPI with Uvicorn",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "args": [
+                "server:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+                "--reload"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: Run Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "args": [
+                "test.py",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: App (Legacy)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/app.py",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Frontend: React Dev Server",
+            "type": "node",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/web",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "dev"],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "restart": true,
+            "env": {
+                "NODE_ENV": "development"
+            }
+        },
+        {
+            "name": "Backend: FastAPI Debug Server",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "args": [
+                "server:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+                "--reload",
+                "--log-level",
+                "debug"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "PYTHONDONTWRITEBYTECODE": "1"
+            }
+        },
+        {
+            "name": "Web Server: Python Production Server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/web/serve.py",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "args": [
+                "--port", "1420",
+                "--host", "127.0.0.1",
+                "--backend-url", "http://127.0.0.1:8000"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "cwd": "${workspaceFolder}/web"
+        },
+        {
+            "name": "Web Server: Vite Preview",
+            "type": "node",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/web",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "preview"],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "env": {
+                "NODE_ENV": "production"
+            }
+        }
+    ],
+    "compounds": [
+        {
+            "name": "🚀 Full Stack Debug (Backend + Frontend)",
+            "configurations": [
+                "Backend: FastAPI Debug Server",
+                "Frontend: React Dev Server"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "hidden": false,
+                "group": "Full Stack",
+                "order": 1
+            }
+        },
+        {
+            "name": "🌐 Production: Backend + Python Web Server",
+            "configurations": [
+                "Backend: FastAPI Debug Server",
+                "Web Server: Python Production Server"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "hidden": false,
+                "group": "Production",
+                "order": 2
+            }
+        },
+        {
+            "name": "🌐 Production: Backend + Vite Preview",
+            "configurations": [
+                "Backend: FastAPI Debug Server",
+                "Web Server: Vite Preview"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "hidden": false,
+                "group": "Production",
+                "order": 3
+            }
+        },
+        {
+            "name": "🐍 Backend Only Debug",
+            "configurations": [
+                "Backend: FastAPI Debug Server"
+            ],
+            "presentation": {
+                "hidden": false,
+                "group": "Backend",
+                "order": 4
+            }
+        },
+        {
+            "name": "⚛️ Frontend Only Debug",
+            "configurations": [
+                "Frontend: React Dev Server"
+            ],
+            "presentation": {
+                "hidden": false,
+                "group": "Frontend",
+                "order": 5
+            }
+        }
+    ]
+}

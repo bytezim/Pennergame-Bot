@@ -1,0 +1,489 @@
+﻿/* ============================================
+   PennerBot Dashboard - Dark Theme CSS
+   Modern & Professional Design
+   ============================================ */
+
+:root {
+  /* Dark Theme Colors */
+  --bg-dark: #0f172a;
+  --bg-darker: #1e293b;
+  --bg-card: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  
+  /* Accent Colors */
+  --accent-teal: #38b2ac;
+  --accent-blue: #4299e1;
+  --accent-purple: #9f7aea;
+  
+  /* Status Colors */
+  --success: #48bb78;
+  --danger: #f56565;
+  --warning: #ed8936;
+  --info: #4299e1;
+  
+  /* Border & Shadow */
+  --border-color: #334155;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.4);
+}
+
+/* Global Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+code {
+  font-family: Fira Code, Consolas, Monaco, monospace;
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  background: rgba(56, 178, 172, 0.2);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+/* Custom Scrollbar - Dark */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-darker);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--accent-teal) 0%, var(--accent-blue) 100%);
+  border-radius: 10px;
+  border: 2px solid var(--bg-darker);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #4fd1c5 0%, #63b3ed 100%);
+}
+
+/* Firefox Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-teal) var(--bg-darker);
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+.slide-in {
+  animation: slideIn 0.6s ease-out;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+/* ============================================
+   SIDEBAR - Dark Theme
+   ============================================ */
+
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 250px;
+  height: 100vh;
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 1000;
+  box-shadow: 4px 0 15px rgba(0, 0, 0, 0.5);
+}
+
+.sidebar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: radial-gradient(ellipse at top, rgba(56, 178, 172, 0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--accent-teal);
+  border-radius: 3px;
+}
+
+.sidebar button {
+  position: relative;
+  overflow: hidden;
+}
+
+.sidebar button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--accent-teal) 0%, var(--accent-blue) 100%);
+  transform: scaleY(0);
+  transition: transform 0.3s ease;
+}
+
+.sidebar button:hover::before,
+.sidebar button[data-active="true"]::before {
+  transform: scaleY(1);
+}
+
+/* ============================================
+   TOP BAR - Dark Theme
+   ============================================ */
+
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 250px;
+  right: 0;
+  height: 70px;
+  background: linear-gradient(90deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-color);
+  z-index: 999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent-teal) 50%, transparent 100%);
+}
+
+/* ============================================
+   CARDS - Dark Theme
+   ============================================ */
+
+.dashboard-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-teal) 0%, var(--accent-blue) 100%);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+
+.dashboard-card:hover::before {
+  transform: scaleX(1);
+}
+
+.card-hover {
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(56, 178, 172, 0.3);
+  border-color: var(--accent-teal);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.gradient-text {
+  background: linear-gradient(135deg, #4fd1c5 0%, #63b3ed 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: bold;
+}
+
+.btn-glow {
+  box-shadow: 0 4px 15px rgba(56, 178, 172, 0.3);
+  transition: all 0.3s ease;
+}
+
+.btn-glow:hover {
+  box-shadow: 0 6px 20px rgba(56, 178, 172, 0.4);
+  transform: translateY(-2px);
+}
+
+.badge-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.progress-glow {
+  box-shadow: 0 2px 15px rgba(56, 178, 172, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.progress-glow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: shimmer 2s infinite;
+}
+
+/* ============================================
+   ACTIVITY LOG - Dark Theme
+   ============================================ */
+
+.activity-log-item {
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-left: 3px solid transparent;
+}
+
+.activity-log-item:hover {
+  background-color: rgba(56, 178, 172, 0.15) !important;
+  transform: translateX(8px);
+  box-shadow: 0 4px 12px rgba(56, 178, 172, 0.3);
+  border-left-color: var(--accent-teal);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--bg-darker);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--accent-teal) 0%, var(--accent-blue) 100%);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #4fd1c5 0%, #63b3ed 100%);
+}
+
+/* ============================================
+   STAT CARDS - Dark Theme
+   ============================================ */
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(56, 178, 172, 0.3);
+  border-color: var(--accent-teal);
+}
+
+/* ============================================
+   GLASS EFFECT - Dark Theme
+   ============================================ */
+
+.glass {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ============================================
+   MOBILE NAVIGATION - Dark Theme
+   ============================================ */
+
+.mobile-nav {
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-card);
+}
+
+.mobile-nav::-webkit-scrollbar {
+  height: 4px;
+}
+
+.mobile-nav::-webkit-scrollbar-thumb {
+  background: var(--accent-teal);
+  border-radius: 2px;
+}
+
+/* Mobile layout adjustments */
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+
+  .topbar {
+    left: 0 !important;
+  }
+}
+
+/* ============================================
+   TEXT READABILITY - Dark Theme
+   ============================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+
+p, span, div {
+  color: var(--text-primary);
+}
+
+label {
+  color: var(--text-primary) !important;
+  font-weight: 500;
+}
+
+.chakra-text {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+}
+
+button {
+  font-weight: 500;
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+*:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+
+@media print {
+  .sidebar,
+  .topbar,
+  .mobile-nav {
+    display: none;
+  }
+
+  body {
+    background: white;
+  }
+
+  .dashboard-card {
+    border: 1px solid #ccc;
+    box-shadow: none;
+    page-break-inside: avoid;
+  }
+}

@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  pennerbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Build-time: API URL für Frontend (optional)
+        # Wenn nicht gesetzt, nutzt Frontend automatisch <hostname>:8000
+        # Beispiel: VITE_API_URL=http://192.168.1.100:8000/api
+        VITE_API_URL: ${VITE_API_URL:-}
+    container_name: pennerbot
+    ports:
+      - "8000:8000"  # FastAPI Backend
+      - "1420:1420"  # Frontend
+    volumes:
+      # Persist database
+      - pennerbot-data:/app/data
+      # Optional: Mount config if needed
+      # - ./config:/app/config:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_PATH=/app/data/pennergame.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  pennerbot-data:
+    driver: local
