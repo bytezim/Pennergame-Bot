@@ -4,7 +4,27 @@ Application-wide constants and configuration.
 Centralized constants for better maintainability and type safety.
 """
 
+import sys
+from pathlib import Path
 from typing import Final
+
+
+def get_data_dir() -> Path:
+    """Get the data directory for storing database.
+    
+    In development mode: uses the project directory.
+    In PyInstaller bundle mode: uses the directory where the exe is located.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Running in PyInstaller bundle - use exe directory
+        return Path(sys.executable).parent
+    else:
+        # Development mode - use project directory
+        return Path(__file__).parent.parent
+
+
+# Get data directory
+DATA_DIR = get_data_dir()
 
 # ===========================
 # API Configuration
@@ -23,7 +43,8 @@ CACHE_TTL_LOGIN: Final[int] = 60  # seconds
 # ===========================
 # Database Configuration
 # ===========================
-DB_URL: Final[str] = "sqlite:///data.db"
+DB_PATH: Final[Path] = DATA_DIR / "data.db"
+DB_URL: Final[str] = f"sqlite:///{DB_PATH}"
 LOG_RETENTION_HOURS: Final[int] = 24
 LOG_CLEANUP_INTERVAL: Final[int] = 50  # Clean every N logs
 

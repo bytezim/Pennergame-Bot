@@ -137,17 +137,19 @@ def parse_overview(html: str) -> dict:
     # Username, ID, Location, Rank, Points
     profile_data = soup.find("div", class_="profile-data")
     if profile_data:
-        penner["username"] = profile_data.find("span", class_="user_name").text.strip()
-        penner["user_id"] = int(
-            profile_data.find_all("span", class_="el2")[0].text.strip()
-        )
-        penner["location"] = profile_data.find_all("span", class_="el2")[1].text.strip()
-        penner["rank"] = int(
-            profile_data.find_all("span", class_="el2")[2].text.strip()
-        )
-        penner["points"] = int(
-            profile_data.find_all("span", class_="el2")[3].text.strip()
-        )
+        try:
+            user_name_span = profile_data.find("span", class_="user_name")
+            if user_name_span:
+                penner["username"] = user_name_span.text.strip()
+            
+            el2_spans = profile_data.find_all("span", class_="el2")
+            if len(el2_spans) >= 4:
+                penner["user_id"] = int(el2_spans[0].text.strip())
+                penner["location"] = el2_spans[1].text.strip()
+                penner["rank"] = int(el2_spans[2].text.strip())
+                penner["points"] = int(el2_spans[3].text.strip())
+        except (ValueError, IndexError, AttributeError) as e:
+            print(f"Warning: Failed to parse profile data: {e}")
 
     # Money, Promille, ATT, DEF, Cleanliness, Status
     summary = soup.find("div", id="summary")
@@ -167,51 +169,81 @@ def parse_overview(html: str) -> dict:
                 else:
                     penner["status_message"] = status_msg_div.get_text(strip=True)
 
-            status_list = status_ov.find("ul", class_="status").find_all("li")
-            penner["rank"] = int(
-                status_list[0].find_all("span")[1].text.strip().replace(".", "")
-            )
-            penner["money"] = status_list[1].find_all("span")[1].text.strip()
+            status_list_ul = status_ov.find("ul", class_="status")
+            if status_list_ul:
+                status_list = status_list_ul.find_all("li")
+                try:
+                    if len(status_list) >= 1:
+                        rank_span = status_list[0].find_all("span")
+                        if len(rank_span) >= 2:
+                            penner["rank"] = int(rank_span[1].text.strip().replace(".", ""))
+                    if len(status_list) >= 2:
+                        money_span = status_list[1].find_all("span")
+                        if len(money_span) >= 2:
+                            penner["money"] = money_span[1].text.strip()
+                except (ValueError, IndexError, AttributeError) as e:
+                    print(f"Warning: Failed to parse status list: {e}")
 
             # Parse Promille - robuster mit Fallback (suche nach allen Promille-Klassen)
             try:
-                promille_li = status_list[2]
-                # Suche nach span mit promille_rot, promille_grun oder promille_gelb
-                promille_span = (
-                    promille_li.find("span", class_="promille_rot")
-                    or promille_li.find("span", class_="promille_grun")
-                    or promille_li.find("span", class_="promille_gelb")
-                )
-                if promille_span:
-                    promille_text = promille_span.text.strip()
-                    # Entferne alle möglichen Varianten von Promille-Zeichen
-                    promille_text = (
-                        promille_text.replace("&permil;", "")
-                        .replace("‰", "")
-                        .replace(",", ".")
-                        .strip()
+                promille_li = None
+                if status_list and len(status_list) >= 3:
+                    promille_li = status_list[2]
+                
+                if promille_li:
+                    # Suche nach span mit promille_rot, promille_grun oder promille_gelb
+                    promille_span = (
+                        promille_li.find("span", class_="promille_rot")
+                        or promille_li.find("span", class_="promille_grun")
+                        or promille_li.find("span", class_="promille_gelb")
                     )
-                    penner["promille"] = float(promille_text)
-                else:
-                    # Fallback: Versuche aus dem gesamten Text zu extrahieren
-                    text = promille_li.get_text(strip=True)
-                    match = re.search(r"([\d,\.]+)\s*‰", text)
-                    if match:
-                        penner["promille"] = float(match.group(1).replace(",", "."))
+                    if promille_span:
+                        promille_text = promille_span.text.strip()
+                        # Entferne alle möglichen Varianten von Promille-Zeichen
+                        promille_text = (
+                            promille_text.replace("&permil;", "")
+                            .replace("‰", "")
+                            .replace(",", ".")
+                            .strip()
+                        )
+                        penner["promille"] = float(promille_text)
                     else:
-                        penner["promille"] = 0.0
+                        # Fallback: Versuche aus dem gesamten Text zu extrahieren
+                        text = promille_li.get_text(strip=True)
+                        match = re.search(r"([\d,\.]+)\s*‰", text)
+                        if match:
+                            penner["promille"] = float(match.group(1).replace(",", "."))
+                        else:
+                            penner["promille"] = 0.0
+                else:
+                    penner["promille"] = 0.0
             except (ValueError, IndexError, AttributeError) as e:
                 print(f"Warning: Failed to parse promille: {e}")
                 penner["promille"] = 0.0
 
-            penner["att"] = int(status_list[3].find("span", class_="att").text.strip())
-            penner["deff"] = int(status_list[4].find("span", class_="def").text.strip())
-            penner["cleanliness"] = int(
-                re.search(
-                    r"width:\s*(\d+)",
-                    status_ov.find("div", class_="processbar_clean").get("style"),
-                ).group(1)
-            )
+            try:
+                if status_list and len(status_list) >= 4:
+                    att_span = status_list[3].find("span", class_="att")
+                    if att_span:
+                        penner["att"] = int(att_span.text.strip())
+                if status_list and len(status_list) >= 5:
+                    def_span = status_list[4].find("span", class_="def")
+                    if def_span:
+                        penner["deff"] = int(def_span.text.strip())
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse att/def: {e}")
+
+            try:
+                processbar_clean = status_ov.find("div", class_="processbar_clean")
+                if processbar_clean:
+                    style = processbar_clean.get("style")
+                    if style:
+                        match = re.search(r"width:\s*(\d+)", style)
+                        if match:
+                            penner["cleanliness"] = int(match.group(1))
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse cleanliness: {e}")
+
             # Daily task
             penner["daily_task_done"] = "noch nicht erledigt" not in status_ov.text
 
@@ -220,31 +252,63 @@ def parse_overview(html: str) -> dict:
     plunder_table = soup.find("table")
     if plunder_table:
         slots = ["Allgemein", "Bildung", "Schmuck"]
-        for idx, td in enumerate(plunder_table.find_all("td", class_="ztipfull")):
-            name = td.find("strong").text.strip()
-            plunder.append({"slot": slots[idx], "name": name})
+        try:
+            for idx, td in enumerate(plunder_table.find_all("td", class_="ztipfull")):
+                name_tag = td.find("strong")
+                if name_tag:
+                    name = name_tag.text.strip()
+                    plunder.append({"slot": slots[idx] if idx < len(slots) else f"Slot {idx}", "name": name})
+        except (ValueError, IndexError, AttributeError) as e:
+            print(f"Warning: Failed to parse plunder: {e}")
     penner["plunder"] = plunder
 
     # Container
     container_div = soup.find("h4", string="Container")
     if container_div:
         ul = container_div.find_next("ul")
-        items = ul.find_all("li")
-        penner["container_capacity"] = (
-            items[0].text.split(":")[1].split("Gefüllt")[0].strip()
-        )
-        penner["container_filled_percent"] = int(
-            items[0]
-            .find("div", class_="processbar")["style"]
-            .split(":")[1]
-            .replace("%;", "")
-            .replace("%", "")
-            .strip()
-        )
-        penner["container_donors"] = int(items[1].find("strong").text.strip())
-        penner["container_total_donations"] = items[2].find("strong").text.strip()
-        penner["container_donations_today"] = int(items[3].text.split()[3])
-        penner["container_ref_link"] = items[4].find("input")["value"]
+        if ul:
+            items = ul.find_all("li")
+            try:
+                if len(items) >= 1:
+                    container_text = items[0].text
+                    if ":" in container_text:
+                        parts = container_text.split(":")
+                        penner["container_capacity"] = parts[0].split("Gefüllt")[0].strip() if "Gefüllt" in container_text else container_text.strip()
+                    
+                    processbar = items[0].find("div", class_="processbar")
+                    if processbar:
+                        style = processbar.get("style")
+                        if style:
+                            match = re.search(r"width:\s*(\d+)", style)
+                            if match:
+                                penner["container_filled_percent"] = int(match.group(1))
+                            else:
+                                penner["container_filled_percent"] = 0
+                        else:
+                            penner["container_filled_percent"] = 0
+                    else:
+                        penner["container_filled_percent"] = 0
+                
+                if len(items) >= 2:
+                    strong = items[1].find("strong")
+                    if strong:
+                        penner["container_donors"] = int(strong.text.strip())
+                
+                if len(items) >= 3:
+                    penner["container_total_donations"] = items[2].find("strong").text.strip() if items[2].find("strong") else "0"
+                
+                if len(items) >= 4:
+                    text = items[3].text
+                    match = re.search(r"(\d+)", text)
+                    if match:
+                        penner["container_donations_today"] = int(match.group(1))
+                
+                if len(items) >= 5:
+                    input_elem = items[4].find("input")
+                    if input_elem:
+                        penner["container_ref_link"] = input_elem.get("value", "")
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse container: {e}")
 
     # Weapon
     weapon_div = soup.find("h4", string=lambda s: s and "Waffe" in s)
@@ -252,16 +316,21 @@ def parse_overview(html: str) -> dict:
         ul = weapon_div.find_next("ul")
         if ul:
             items = ul.find_all("li")
-            if items:
-                penner["weapon_name"] = items[0].text.strip()
-                # Try to extract ATT bonus from second li
-                try:
-                    att_text = items[1].text.strip()
-                    att_val = int("".join(filter(str.isdigit, att_text)))
-                    penner["weapon_att"] = att_val
-                except Exception:
+            try:
+                if items:
+                    penner["weapon_name"] = items[0].text.strip()
+                    # Try to extract ATT bonus from second li
+                    if len(items) >= 2:
+                        att_text = items[1].text.strip()
+                        att_val = int("".join(filter(str.isdigit, att_text)))
+                        penner["weapon_att"] = att_val
+                    else:
+                        penner["weapon_att"] = None
+                else:
+                    penner["weapon_name"] = None
                     penner["weapon_att"] = None
-            else:
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse weapon: {e}")
                 penner["weapon_name"] = None
                 penner["weapon_att"] = None
 
@@ -271,15 +340,20 @@ def parse_overview(html: str) -> dict:
         ul = home_div.find_next("ul")
         if ul:
             items = ul.find_all("li")
-            if items:
-                penner["home_name"] = items[0].text.strip()
-                try:
-                    def_text = items[1].text.strip()
-                    def_val = int("".join(filter(str.isdigit, def_text)))
-                    penner["home_def"] = def_val
-                except Exception:
+            try:
+                if items:
+                    penner["home_name"] = items[0].text.strip()
+                    if len(items) >= 2:
+                        def_text = items[1].text.strip()
+                        def_val = int("".join(filter(str.isdigit, def_text)))
+                        penner["home_def"] = def_val
+                    else:
+                        penner["home_def"] = None
+                else:
+                    penner["home_name"] = None
                     penner["home_def"] = None
-            else:
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse home: {e}")
                 penner["home_name"] = None
                 penner["home_def"] = None
 
@@ -289,25 +363,30 @@ def parse_overview(html: str) -> dict:
         ul = instr_div.find_next("ul")
         if ul:
             items = ul.find_all("li")
-            if items:
-                penner["instrument_name"] = items[0].text.strip()
-                income = None
-                for li in items:
-                    if "am Tag" in li.text:
-                        income = li.text.strip()
-                        break
-                penner["instrument_income_per_day"] = income
-                payout = None
-                for li in items:
-                    form = li.find("form")
-                    if form:
-                        # Find input with type="submit"
-                        input_elem = form.find("input", {"type": "submit"})
-                        if input_elem and input_elem.has_attr("value"):
-                            payout = input_elem["value"].strip()
+            try:
+                if items:
+                    penner["instrument_name"] = items[0].text.strip()
+                    income = None
+                    for li in items:
+                        if "am Tag" in li.text:
+                            income = li.text.strip()
                             break
-                penner["instrument_payout"] = payout
-            else:
+                    penner["instrument_income_per_day"] = income
+                    payout = None
+                    for li in items:
+                        form = li.find("form")
+                        if form:
+                            input_elem = form.find("input", {"type": "submit"})
+                            if input_elem and input_elem.has_attr("value"):
+                                payout = input_elem["value"].strip()
+                                break
+                    penner["instrument_payout"] = payout
+                else:
+                    penner["instrument_name"] = None
+                    penner["instrument_income_per_day"] = None
+                    penner["instrument_payout"] = None
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse instrument: {e}")
                 penner["instrument_name"] = None
                 penner["instrument_income_per_day"] = None
                 penner["instrument_payout"] = None
@@ -318,15 +397,20 @@ def parse_overview(html: str) -> dict:
         ul = schnorr_div.find_next("ul")
         if ul:
             items = ul.find_all("li")
-            if items:
-                penner["schnorrplatz_name"] = items[0].text.strip()
-                income = None
-                for li in items:
-                    if "je Spende" in li.text:
-                        income = li.text.strip()
-                        break
-                penner["schnorrplatz_income_per_donation"] = income
-            else:
+            try:
+                if items:
+                    penner["schnorrplatz_name"] = items[0].text.strip()
+                    income = None
+                    for li in items:
+                        if "je Spende" in li.text:
+                            income = li.text.strip()
+                            break
+                    penner["schnorrplatz_income_per_donation"] = income
+                else:
+                    penner["schnorrplatz_name"] = None
+                    penner["schnorrplatz_income_per_donation"] = None
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse schnorrplatz: {e}")
                 penner["schnorrplatz_name"] = None
                 penner["schnorrplatz_income_per_donation"] = None
 
@@ -336,34 +420,41 @@ def parse_overview(html: str) -> dict:
         ul = pet_div.find_next("ul")
         if ul:
             items = ul.find_all("li")
-            if items:
-                penner["pet_name"] = items[0].text.strip()
-                att_def = None
-                for li in items:
-                    if "Angriff/Verteidigung" in li.text:
-                        att_def = li.text.strip()
-                        break
-                if att_def:
-                    try:
-                        parts = att_def.split(":")[1].split("/")
-                        penner["pet_attack"] = int(parts[0].strip())
-                        penner["pet_defense"] = int(parts[1].strip())
-                    except Exception:
+            try:
+                if items:
+                    penner["pet_name"] = items[0].text.strip()
+                    att_def = None
+                    for li in items:
+                        if "Angriff/Verteidigung" in li.text:
+                            att_def = li.text.strip()
+                            break
+                    if att_def:
+                        try:
+                            parts = att_def.split(":")[1].split("/")
+                            penner["pet_attack"] = int(parts[0].strip())
+                            penner["pet_defense"] = int(parts[1].strip())
+                        except Exception:
+                            penner["pet_attack"] = None
+                            penner["pet_defense"] = None
+                    else:
                         penner["pet_attack"] = None
                         penner["pet_defense"] = None
+                    tricks = None
+                    for li in items:
+                        if "Kunstst" in li.text:
+                            try:
+                                tricks = int("".join(filter(str.isdigit, li.text)))
+                            except Exception:
+                                tricks = None
+                            break
+                    penner["pet_tricks"] = tricks
                 else:
+                    penner["pet_name"] = None
                     penner["pet_attack"] = None
                     penner["pet_defense"] = None
-                tricks = None
-                for li in items:
-                    if "Kunstst" in li.text:
-                        try:
-                            tricks = int("".join(filter(str.isdigit, li.text)))
-                        except Exception:
-                            tricks = None
-                        break
-                penner["pet_tricks"] = tricks
-            else:
+                    penner["pet_tricks"] = None
+            except (ValueError, IndexError, AttributeError) as e:
+                print(f"Warning: Failed to parse pet: {e}")
                 penner["pet_name"] = None
                 penner["pet_attack"] = None
                 penner["pet_defense"] = None

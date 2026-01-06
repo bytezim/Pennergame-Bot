@@ -8,15 +8,37 @@ Optimizations:
 - WAL mode for better concurrency
 """
 
+import sys
+import atexit
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Generator
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+
+def get_data_dir() -> Path:
+    """Get the data directory for storing database.
+    
+    In development mode: uses the project directory.
+    In PyInstaller bundle mode: uses the directory where the exe is located.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Running in PyInstaller bundle - use exe directory
+        return Path(sys.executable).parent
+    else:
+        # Development mode - use project directory
+        return Path(__file__).parent.parent
+
+
+# Get data directory for database
+DATA_DIR = get_data_dir()
+DB_PATH = DATA_DIR / "data.db"
+
 # SQLite optimization: Use WAL mode for better concurrency
-DB_URL = "sqlite:///data.db"
+DB_URL = f"sqlite:///{DB_PATH}"
 
 # Connection pooling configuration
 # StaticPool for SQLite to maintain single connection in dev
@@ -31,6 +53,25 @@ engine = create_engine(
     echo=False,  # Set to True for SQL debugging
     pool_pre_ping=True,  # Verify connections before using
 )
+
+
+def close_db_connection():
+    """Properly close database connection and perform WAL checkpoint.
+    
+    This function should be called on application shutdown to ensure
+    all data is written to the main database file and the WAL/shm files
+    are cleaned up properly.
+    """
+    try:
+        # Perform a WAL checkpoint to merge all pending writes into the main db
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        
+        # Dispose the engine to close all connections
+        engine.dispose()
+    except Exception as e:
+        print(f"Error during database shutdown: {e}")
 
 
 # Enable WAL mode for SQLite (better concurrency)
@@ -84,4 +125,10 @@ def get_session() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     """Initialize database tables."""
-    Base.metadata.create_all(bind=engine)
+    # Use checkfirst=True to avoid errors if tables already exist
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+
+
+# Register cleanup function to run on application exit
+# This ensures WAL checkpoint is performed and connections are properly closed
+atexit.register(close_db_connection)

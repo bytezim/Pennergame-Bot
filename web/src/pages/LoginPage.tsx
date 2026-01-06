@@ -31,7 +31,6 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
   const [userAgent, setUserAgent] = useState("");
   const [loading, setLoading] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
-  const [autoLoginChecked, setAutoLoginChecked] = useState(false);
   const { isOpen, onToggle } = useDisclosure();
   const toast = useToast();
 
@@ -73,6 +72,33 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
     initializeUserAgent();
   }, []);
 
+  // Attempt auto-login on mount if credentials are saved
+  useEffect(() => {
+    const attemptAutoLogin = async () => {
+      try {
+        const response = await fetch(getApiUrl("/login/auto"), {
+          method: "POST",
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.logged_in) {
+          console.log("Auto-login successful");
+          // Auto-login: suppress toast here
+          onLoginSuccess(false);
+        } else {
+          console.log("Auto-login not possible or failed:", data.message);
+        }
+      } catch (error) {
+        console.error("Auto-login request failed:", error);
+      }
+    };
+    
+    // Small delay to ensure backend is ready
+    const timer = setTimeout(attemptAutoLogin, 500);
+    return () => clearTimeout(timer);
+  }, [onLoginSuccess]);
+
   // Check backend status on mount and periodically
   useEffect(() => {
     checkBackendStatus();
@@ -93,16 +119,6 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
       
       if (response.ok) {
         setBackendStatus("online");
-        
-        // Check if user is already logged in - but only once on initial mount
-        if (!autoLoginChecked) {
-          setAutoLoginChecked(true);
-          const data = await response.json();
-          if (data.logged_in) {
-            // Auto-login: suppress toast here, App.tsx will NOT show toast either
-            onLoginSuccess(false);
-          }
-        }
       } else {
         setBackendStatus("offline");
       }

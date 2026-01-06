@@ -1,7 +1,9 @@
 """FastAPI backend server for PennerBot."""
 
 import asyncio
+import atexit
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import uvicorn
@@ -13,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from src.cache import app_cache, cached, get_cache_stats, invalidate_cache_pattern
 from src.constants import BOTTLE_JOB_ID, CORS_ALLOWED_ORIGINS, TRAINING_JOB_ID
 from src.core import PennerBot
-from src.db import get_session
+from src.db import close_db_connection, get_session
 from src.error_handlers import register_error_handlers
 from src.events import event_bus
 from src.logging_config import get_logger, setup_logging
@@ -31,6 +33,19 @@ from src.validation import (
 
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
+
+
+# Register cleanup function to be called on exit
+atexit.register(close_db_connection)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown."""
+    # Startup: nothing special needed
+    yield
+    # Shutdown: close database connection properly
+    close_db_connection()
 
 
 # Pydantic Models
@@ -75,14 +90,11 @@ class SettingsRequest(BaseModel):
             raise ValueError(str(e))
 
 
-from contextlib import asynccontextmanager
-
-
-
 app = FastAPI(
     title="PennerBot API",
     version="0.2.0",
     description="Automated Pennergame bot with REST API",
+    lifespan=lifespan,
 )
 
 register_error_handlers(app)
@@ -107,7 +119,15 @@ async def performance_tracking_middleware(request: Request, call_next):
     return response
 
 
-bot = PennerBot()
+bot = None
+
+
+def get_bot() -> PennerBot:
+    """Get or create the global bot instance."""
+    global bot
+    if bot is None:
+        bot = PennerBot()
+    return bot
 
 
 def get_bot_config():
@@ -228,6 +248,21 @@ def _bot_collect_bottles_task():
         if not bot.is_logged_in(skip_log=True):
             bot.log("❌ Bottles task: not logged in")
             return
+
+        # SMART CHECK: Prüfe ob bereits Pfandflaschen sammeln läuft
+        try:
+            activities = bot.get_activities_data(use_cache=False)  # Frische Daten
+            bottles_status = activities.get("bottles", {})
+            if bottles_status.get("running", False):
+                seconds_remaining = bottles_status.get("seconds_remaining", 0)
+                if seconds_remaining > 0:
+                    minutes_remaining = seconds_remaining // 60
+                    bot.log(f"⏳ Bottle collection already running, {seconds_remaining}s remaining (~{minutes_remaining}m)")
+                    # Nur neu planen, nicht neu starten
+                    _schedule_next_bottles_task()
+                    return
+        except Exception as e:
+            bot.log(f"⚠️ Could not check bottle status: {e}, proceeding with start")
 
         bot.log(f"🍾 Starting bottle collection for {duration_minutes} minutes...")
 
@@ -835,33 +870,42 @@ def status() -> Dict[str, Any]:
     Cached für 10 Sekunden um parallele Requests zu optimieren.
     """
     try:
+        current_bot = get_bot()  # Ensure bot is initialized
+        
         # Aktualisiere Activity-Status mit Cache (180s) - nur wenn eingeloggt
-        if getattr(bot, "logged_in", False):
-            # refresh_status hat eigenen Cache, force=False nutzt ihn
-            bot.refresh_status(force=False)
+        if getattr(current_bot, "logged_in", False):
+            try:
+                current_bot.refresh_status(force=False)
+            except Exception as e:
+                logger.warning(f"Failed to refresh status: {e}")
 
         # Nutze gecachte Daten statt neuem Request
-        data = bot.get_penner_data()
+        try:
+            data = current_bot.get_penner_data()
+        except Exception as e:
+            logger.warning(f"Failed to get penner data: {e}")
+            data = None
+        
         return {
-            "logged_in": bool(getattr(bot, "logged_in", False)),
+            "logged_in": bool(getattr(current_bot, "logged_in", False)),
             "penner": data,
             "activities": {
-                "skill_running": getattr(bot, "skill_running", False),
+                "skill_running": getattr(current_bot, "skill_running", False),
                 "skill_seconds_remaining": getattr(
-                    bot, "skill_seconds_remaining", None
+                    current_bot, "skill_seconds_remaining", None
                 ),
-                "fight_running": getattr(bot, "fight_running", False),
+                "fight_running": getattr(current_bot, "fight_running", False),
                 "fight_seconds_remaining": getattr(
-                    bot, "fight_seconds_remaining", None
+                    current_bot, "fight_seconds_remaining", None
                 ),
-                "bottles_running": getattr(bot, "bottles_running", False),
+                "bottles_running": getattr(current_bot, "bottles_running", False),
                 "bottles_seconds_remaining": getattr(
-                    bot, "bottles_seconds_remaining", None
+                    current_bot, "bottles_seconds_remaining", None
                 ),
             },
         }
     except Exception as e:
-        logger.error(f"Status endpoint error: {e}")
+        logger.error(f"Status endpoint error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -942,6 +986,62 @@ def logout() -> Dict[str, Any]:
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/login/auto")
+def auto_login() -> Dict[str, Any]:
+    """
+    Auto-login endpoint that attempts to login using saved credentials.
+    This is called by the frontend when the login page loads to attempt
+    automatic re-login without showing the login form.
+    
+    Returns:
+        Success status and login state
+    """
+    try:
+        # Check if we have saved credentials first
+        with get_session() as s:
+            username_setting = s.query(Settings).filter_by(key="username").first()
+            password_setting = s.query(Settings).filter_by(key="password_encrypted").first()
+
+            if not username_setting or not password_setting:
+                return {
+                    "success": False,
+                    "message": "No saved credentials",
+                    "logged_in": bool(getattr(bot, "logged_in", False))
+                }
+
+        # Attempt auto-relogin via the bot
+        login_result = bot._attempt_auto_relogin()
+        
+        if login_result:
+            # Invalidate caches after successful login
+            invalidate_cache_pattern("dashboard")
+            invalidate_cache_pattern("logs")
+            invalidate_cache_pattern("stats")
+            
+            logger.info("Auto-login successful")
+            
+            return {
+                "success": True,
+                "message": "Auto-login successful",
+                "logged_in": True
+            }
+        else:
+            logger.warning("Auto-login failed")
+            
+            return {
+                "success": False,
+                "message": "Auto-login failed - please login manually",
+                "logged_in": False
+            }
+    except Exception as e:
+        logger.error(f"Auto-login error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": str(e),
+            "logged_in": bool(getattr(bot, "logged_in", False))
+        }
 
 
 @app.post("/api/status/refresh")
@@ -1225,26 +1325,28 @@ def bot_start() -> Dict[str, Any]:
 
         from src.events import emit_bot_state_changed
 
+        global bot
+        if bot is None:
+            bot = PennerBot()
+        
         # Start scheduler
         start_scheduler()
 
         # Update Status
         update_bot_config(is_running=True, last_started=datetime.now())
 
-        bot.log("🟢 Bot started")
+        bot.log("[RUNNING] Bot started")
 
         # Debug: Hole Config
         config = get_bot_config()
-        bot.log(
-            f"📋 Config: bottles_enabled={config['bottles_enabled']}, duration={config['bottles_duration_minutes']}min, pause={config['bottles_pause_minutes']}min"
-        )
+        bot.log(f"[CONFIG] Config: bottles_enabled={config['bottles_enabled']}, duration={config['bottles_duration_minutes']}min, pause={config['bottles_pause_minutes']}min")
 
         # Emit Event für UI
         emit_bot_state_changed(True, config)
 
         # Debug: Login-Status (ohne redundante Logs)
         is_logged_in = bot.is_logged_in(skip_log=True)
-        bot.log(f"🔐 Login status: {is_logged_in}")
+        bot.log(f"[LOGIN] Login status: {is_logged_in}")
 
         if not is_logged_in:
             bot.log("⚠️ Bot is not logged in! Please login first.")
@@ -1254,19 +1356,69 @@ def bot_start() -> Dict[str, Any]:
                 "warning": "Bot not logged in - tasks will be skipped until login",
             }
 
-        # Starte Flaschen-Task sofort
-        if config["bottles_enabled"]:
-            bot.log("🚀 Starting bottle collection task...")
-            _bot_collect_bottles_task()
+        # Prüfe auf fortzusetzende Aktivitäten vom letzten Lauf
+        pending = bot.get_pending_activity_resume()
+        
+        if pending:
+            bot.log(f"[RESTORE] Found pending activities to resume: bottles={pending.get('bottles')}, skill={pending.get('skill')}")
+            
+            # Bottle collecting - wenn noch aktiv, nur schedule
+            if pending.get("bottles", {}).get("running") and config["bottles_enabled"]:
+                seconds_remaining = pending["bottles"].get("seconds_remaining", 0)
+                if seconds_remaining > 0:
+                    minutes_remaining = seconds_remaining // 60
+                    bot.log(f"🍾 Resuming bottle collection tracking - {seconds_remaining}s remaining (~{minutes_remaining}m)")
+                    # Nur schedule, nicht neu starten!
+                    _schedule_next_bottles_task()
+                else:
+                    # Keine Zeit mehr - starte neuen Durchgang
+                    bot.log("🍾 Starting fresh bottle collection (previous completed)")
+                    _bot_collect_bottles_task()
+            elif config["bottles_enabled"]:
+                # Keine laufende Aktivität - starte normal
+                bot.log("🍾 Starting bottle collection task...")
+                _bot_collect_bottles_task()
+            else:
+                bot.log("⏭️ Bottle collection disabled in config")
+            
+            # Training - wenn noch aktiv, nur schedule
+            if pending.get("skill", {}).get("running") and config["training_enabled"]:
+                seconds_remaining = pending["skill"].get("seconds_remaining", 0)
+                if seconds_remaining > 0:
+                    minutes_remaining = seconds_remaining // 60
+                    subtype = pending["skill"].get("subtype", "")
+                    bot.log(f"🎓 Resuming training tracking ({subtype or 'unknown'}) - {seconds_remaining}s remaining (~{minutes_remaining}m)")
+                    # Nur schedule, nicht neu starten!
+                    _schedule_next_training_task()
+                else:
+                    # Keine Zeit mehr - starte neuen Durchgang
+                    bot.log("🎓 Starting fresh training (previous completed)")
+                    _bot_training_task()
+            elif config["training_enabled"]:
+                # Keine laufende Aktivität - starte normal
+                bot.log("🎓 Starting training task...")
+                _bot_training_task()
+            else:
+                bot.log("⏭️ Training disabled in config")
+                
+            bot.log("[RESTORE] Activity resumption check complete")
         else:
-            bot.log("⏭️ Bottle collection disabled in config")
+            # Keine ausstehenden Aktivitäten - starte normal
+            bot.log("[RESTORE] No pending activities - starting fresh")
+            
+            # Starte Flaschen-Task sofort
+            if config["bottles_enabled"]:
+                bot.log("🚀 Starting bottle collection task...")
+                _bot_collect_bottles_task()
+            else:
+                bot.log("⏭️ Bottle collection disabled in config")
 
-        # Starte Training-Task sofort
-        if config["training_enabled"]:
-            bot.log("🚀 Starting training task...")
-            _bot_training_task()
-        else:
-            bot.log("⏭️ Training disabled in config")
+            # Starte Training-Task sofort
+            if config["training_enabled"]:
+                bot.log("🚀 Starting training task...")
+                _bot_training_task()
+            else:
+                bot.log("⏭️ Training disabled in config")
 
         # Auto-Sell: Prüfe sofort beim Start ob Bedingungen erfüllt sind
         if config.get("bottles_autosell_enabled"):
@@ -1315,7 +1467,7 @@ def bot_stop() -> Dict[str, Any]:
             if job:
                 job.remove()
 
-        bot.log("🔴 Bot stopped")
+        bot.log("[STOPPED] Bot stopped")
 
         config = get_bot_config()
 
@@ -2053,4 +2205,11 @@ def get_performance_stats():
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=False)
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="PennerBot Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    args = parser.parse_args()
+    
+    uvicorn.run("server:app", host=args.host, port=args.port, reload=False)

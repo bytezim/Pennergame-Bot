@@ -122,21 +122,42 @@ async def main():
         site = web.TCPSite(runner, args.host, args.port)
         await site.start()
 
-        print(f"✓ Server running on http://{args.host}:{args.port}")
-        print(f"✓ API proxy active: /api/* -> {args.backend_url}/api/*\n")
+        print(f"[OK] Server running on http://{args.host}:{args.port}")
+        print(f"[OK] API proxy active: /api/* -> {args.backend_url}/api/*\n")
 
         # Keep running
         await asyncio.Event().wait()
     except KeyboardInterrupt:
         print("\n\nShutting down server...")
     except FileNotFoundError as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] Error: {e}")
         return 1
     except Exception as e:
-        print(f"\n❌ Error starting server: {e}")
+        print(f"\n[ERROR] Error starting server: {e}")
         return 1
 
     return 0
+
+
+def run_server(port: int = 1420, host: str = "127.0.0.1", backend_url: str = "http://127.0.0.1:8000"):
+    """
+    Run the web server (synchronous wrapper for use in threads).
+    
+    Args:
+        port: Port to serve on (default: 1420)
+        host: Host to bind to (default: 127.0.0.1)
+        backend_url: Backend API URL (default: http://127.0.0.1:8000)
+    """
+    import sys
+    
+    # Create a modified version of sys.argv for the parser
+    old_argv = sys.argv
+    sys.argv = ['serve.py', '--port', str(port), '--host', host, '--backend-url', backend_url]
+    
+    try:
+        return asyncio.run(main())
+    finally:
+        sys.argv = old_argv
 
 
 if __name__ == "__main__":

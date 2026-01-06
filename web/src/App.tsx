@@ -237,6 +237,16 @@ function App() {
   const checkAuthStatus = useCallback(async () => {
     try {
       const response = await fetch("/api/status");
+      
+      // If status endpoint fails, don't immediately set isAuthenticated to false
+      // Use dashboard data if already loaded
+      if (!response.ok) {
+        console.warn("Status endpoint failed:", response.status);
+        // Don't change isAuthenticated state - keep current state
+        // The dashboard data will be used to determine login status
+        return;
+      }
+      
       const data = await response.json();
       
       // Set status with proper structure
@@ -248,7 +258,8 @@ function App() {
       setIsAuthenticated(data.logged_in || false);
     } catch (error) {
       console.error("Failed to check auth status:", error);
-      setIsAuthenticated(false);
+      // Don't set isAuthenticated to false on network errors
+      // Keep current state - user might still be logged in based on dashboard data
     }
   }, []);
 

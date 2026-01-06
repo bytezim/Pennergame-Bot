@@ -10,6 +10,9 @@ block_cipher = None
 datas = [
     ('web/dist', 'web/dist'),  # Frontend build
     ('src', 'src'),  # Source code modules
+    ('server.py', '.'),  # Server module (needed for direct import in bundle mode)
+    ('gui_launcher.py', '.'),  # GUI launcher module
+    ('web/serve.py', 'web'),  # Web server module
 ]
 
 # Collect all hidden imports (modules loaded dynamically)
@@ -17,27 +20,51 @@ hiddenimports = [
     # Uvicorn (minimal)
     'uvicorn.logging',
     'uvicorn.loops.auto',
+    'uvicorn.loops.uvloop',
     'uvicorn.protocols.http.auto',
+    'uvicorn.protocols.http.h11_impl',
     'uvicorn.protocols.websockets.auto',
+    'uvicorn.protocols.websockets.wsproto',
     'uvicorn.lifespan.on',
+    # FastAPI
+    'fastapi',
+    'starlette',
+    'starlette.routing',
+    'starlette.responses',
+    'starlette.middleware',
+    'starlette.middleware.cors',
     # Aiohttp (minimal)
     'aiohttp',
     'aiohttp.web',
+    'aiohttp.typedefs',
     # Web scraping
     'bs4',
+    'bs4.builder',
     'lxml.etree',
     # Database
     'sqlalchemy',
     'sqlalchemy.ext.declarative',
+    'sqlalchemy.orm',
+    'sqlalchemy.orm.decl_api',
     # HTTP client
     'httpx',
+    'httpx._api',
     # Scheduler
     'apscheduler.schedulers.asyncio',
+    # GUI components
+    'tkinter.ttk',
+    'pystray',
+    'PIL.Image',
+    'PIL.ImageDraw',
+    # Process management
+    'psutil',
+    # Event loop
+    'asyncio',
+    'asyncio.base_events',
 ]
 
 # Exclude unnecessary modules to reduce size
 excludes = [
-    'tkinter',
     'unittest',
     'pydoc',
     'doctest',
@@ -58,7 +85,7 @@ excludes = [
 ]
 
 a = Analysis(
-    ['launcher.py'],
+    ['gui_launcher.py'],
     pathex=[],
     binaries=[],
     datas=datas,
@@ -95,7 +122,7 @@ exe = EXE(
         'api-ms-win-*.dll',
     ],
     runtime_tmpdir=None,
-    console=True,  # Set to False to hide console window
+    console=False,  # Set to False to hide console window
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

@@ -95,9 +95,8 @@ pypennergamebot/
 ├── ⚛️ React Frontend
 │   └── web/               # React + TypeScript + Tauri
 ├── 🛠️ Development Tools
-│   ├── setup.ps1      # Main development script
-│   ├── setup.bat      # Batch alternative
-│   ├── justfile           # Cross-platform tasks
+│   ├── manage.ps1      # Main development script
+│   ├── manage.ps1      # Batch alternative (same script)
 │   └── .vscode/           # VS Code configuration
 └── 📖 Documentation
     ├── DEVELOPMENT.md      # Detailed dev guide
@@ -106,12 +105,12 @@ pypennergamebot/
 
 ## 🔄 Typical Development Workflow
 
-1. **Start**: `.\setup.ps1 dev`
+1. **Start**: `.\manage.ps1 dev`
 2. **Code**: Edit files in `src/` (Python) or `web/src/` (React)
 3. **Auto-reload**: Both servers reload automatically
-4. **Test**: `.\setup.ps1 test`
-5. **Format**: `.\setup.ps1 format` (before committing)
-6. **Build**: `.\setup.ps1 build` (for production)
+4. **Test**: `.\manage.ps1 test`
+5. **Format**: `.\manage.ps1 format` (before committing)
+6. **Build**: `.\manage.ps1 build` (for production)
 
 ## 🎨 Features
 
@@ -149,7 +148,7 @@ If you get execution policy errors:
 
 ```powershell
 # Unblock the script (one time only)
-Unblock-File -Path ".\setup.ps1"
+Unblock-File -Path ".\manage.ps1"
 ```
 
 ### Port Conflicts
@@ -165,7 +164,7 @@ Unblock-File -Path ".\setup.ps1"
 python --version
 
 # Reinstall dependencies
-.\setup.ps1 setup
+.\manage.ps1 setup
 ```
 
 ### Node.js Issues
@@ -175,14 +174,14 @@ python --version
 node --version
 
 # Clean and reinstall
-.\setup.ps1 clean
-.\setup.ps1 setup
+.\manage.ps1 clean
+.\manage.ps1 setup
 ```
 
 ## 🎯 Next Steps
 
-1. Run `.\setup.ps1 setup` to install dependencies
-2. Run `.\setup.ps1 dev` to start development
+1. Run `.\manage.ps1 setup` to install dependencies
+2. Run `.\manage.ps1 dev` to start development
 3. Open browser to http://localhost:1420 for frontend
 4. Open http://127.0.0.1:8000/docs for API documentation
 5. Start coding! 🎉
@@ -191,6 +190,6 @@ node --version
 
 - Read `DEVELOPMENT.md` for detailed development guide
 - Check VS Code tasks (Ctrl+Shift+P → "Tasks")
-- Use `.\setup.ps1 help` for command reference
+- Use `.\manage.ps1 help` for command reference
 
 Happy coding! 🚀

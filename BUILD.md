@@ -96,7 +96,7 @@ Anleitung zum Erstellen einer ausführbaren Windows-EXE mit Backend und Frontend
 PennerBot/
 ├── launcher.py          # Entry-Point für EXE
 ├── pennerbot.spec       # PyInstaller Konfiguration
-├── manage.ps1           # Management Script (vorher setup.ps1)
+├── manage.ps1           # Management Script
 ├── BUILD.md             # Diese Datei
 ├── dist/
 │   └── PennerBot.exe    # ← Fertige Windows-Binary

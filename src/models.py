@@ -113,6 +113,22 @@ class PointsHistory(Base):
     points = Column(Integer, nullable=False)  # Punkte (z.B. 15000, 20000, etc.)
 
 
+class BotActivity(Base):
+    """Trackt ongoing bot activities for state persistence and resumption after restart"""
+
+    __tablename__ = "bot_activities"
+    id = Column(Integer, primary_key=True)
+    activity_type = Column(String, nullable=False)  # 'skill', 'fight', 'bottles'
+    activity_subtype = Column(String, nullable=True)  # 'att', 'def', 'agi' for skills
+    is_running = Column(Boolean, nullable=False, default=False)
+    start_time = Column(DateTime, nullable=True)
+    expected_end_time = Column(DateTime, nullable=True)
+    seconds_remaining = Column(Integer, nullable=True)
+    additional_data = Column(String, nullable=True)  # JSON for extra context
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
 class BotConfig(Base):
     """Bot-Konfiguration für 24/7 Betrieb"""
 

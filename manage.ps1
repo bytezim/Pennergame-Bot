@@ -39,7 +39,7 @@ function Show-Help {
     Write-Host "  webserver     - Start Python web server for production build"
     Write-Host "  build         - Build the frontend for production"
     Write-Host "  build-setup   - Install PyInstaller for Windows binary builds"
-    Write-Host "  windows-build - Create Windows EXE (backend + frontend)"
+    Write-Host "  windows-build - Create Windows GUI EXE (backend + frontend)"
     Write-Host "  clean         - Clean all build artifacts and dependencies"
     Write-Host "  test          - Run Python tests"
     Write-Host "  format        - Format Python code with black and isort"
@@ -54,9 +54,9 @@ function Show-Help {
     Write-Host "  .\manage.ps1 windows-build -Clean     # Clean build from scratch"
     Write-Host ""
     Write-ColoredOutput "Windows Build:" "Cyan"
-    Write-Host "  1. .\manage.ps1 build-setup           # Install PyInstaller"
-    Write-Host "  2. .\manage.ps1 windows-build         # Create PennerBot.exe"
-    Write-Host "  3. .\dist\PennerBot.exe               # Run the EXE"
+        Write-Host "  1. .\manage.ps1 build-setup           # Install PyInstaller"
+        Write-Host "  2. .\manage.ps1 windows-build         # Create PennerBot GUI exe"
+        Write-Host "  3. .\dist\PennerBot.exe               # Run the GUI application"
 }
 
 function Test-Command {
@@ -481,7 +481,7 @@ function Build-WindowsBinary {
     )
     
     Write-ColoredOutput ("=" * 60) "Cyan"
-    Write-ColoredOutput "🏗️  Building PennerBot Windows Binary" "Yellow"
+    Write-ColoredOutput "🏗️  Building PennerBot Windows GUI Binary" "Yellow"
     Write-ColoredOutput ("=" * 60) "Cyan"
     Write-Host ""
     
