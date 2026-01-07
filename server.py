@@ -3,6 +3,7 @@
 import asyncio
 import atexit
 import logging
+import threading
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
@@ -42,7 +43,15 @@ atexit.register(close_db_connection)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
-    # Startup: nothing special needed
+    # Startup: ensure DB is initialized (create tables + migrations)
+    try:
+        from src.db import init_db
+
+        init_db()
+    except Exception:
+        # Best-effort - don't crash the app on migration issues
+        pass
+
     yield
     # Shutdown: close database connection properly
     close_db_connection()
@@ -120,14 +129,22 @@ async def performance_tracking_middleware(request: Request, call_next):
 
 
 bot = None
+_bot_lock = threading.Lock()
 
 
 def get_bot() -> PennerBot:
-    """Get or create the global bot instance."""
+    """Get or create the global bot instance (thread-safe singleton)."""
     global bot
     if bot is None:
-        bot = PennerBot()
+        with _bot_lock:
+            if bot is None:
+                bot = PennerBot()
     return bot
+
+
+def _get_bot() -> PennerBot:
+    """Internal helper to get bot instance, alias for get_bot() for compatibility."""
+    return get_bot()
 
 
 def get_bot_config():
@@ -178,7 +195,7 @@ def update_bot_config(**kwargs):
         if duration not in VALID_BOTTLE_DURATIONS:
             duration = min(VALID_BOTTLE_DURATIONS, key=lambda x: abs(x - duration))
             kwargs["bottles_duration_minutes"] = duration
-            bot.log(
+            get_bot().log(
                 f"⚠️ Ungültige Sammeldauer: {kwargs.get('bottles_duration_minutes')}. Nutze {duration} Minuten."
             )
 
@@ -240,45 +257,45 @@ def _bot_collect_bottles_task():
         with get_session() as s:
             config = s.query(BotConfig).first()
             if not config or not config.is_running or not config.bottles_enabled:
-                bot.log("⏭️ Bottles task skipped: bot not running or disabled")
+                get_bot().log("⏭️ Bottles task skipped: bot not running or disabled")
                 return
 
             duration_minutes = config.bottles_duration_minutes
 
-        if not bot.is_logged_in(skip_log=True):
-            bot.log("❌ Bottles task: not logged in")
+        if not get_bot().is_logged_in(skip_log=True):
+            get_bot().log("❌ Bottles task: not logged in")
             return
 
         # SMART CHECK: Prüfe ob bereits Pfandflaschen sammeln läuft
         try:
-            activities = bot.get_activities_data(use_cache=False)  # Frische Daten
+            activities = get_bot().get_activities_data(use_cache=False)  # Frische Daten
             bottles_status = activities.get("bottles", {})
             if bottles_status.get("running", False):
                 seconds_remaining = bottles_status.get("seconds_remaining", 0)
                 if seconds_remaining > 0:
                     minutes_remaining = seconds_remaining // 60
-                    bot.log(f"⏳ Bottle collection already running, {seconds_remaining}s remaining (~{minutes_remaining}m)")
+                    get_bot().log(f"⏳ Bottle collection already running, {seconds_remaining}s remaining (~{minutes_remaining}m)")
                     # Nur neu planen, nicht neu starten
                     _schedule_next_bottles_task()
                     return
         except Exception as e:
-            bot.log(f"⚠️ Could not check bottle status: {e}, proceeding with start")
+            get_bot().log(f"⚠️ Could not check bottle status: {e}, proceeding with start")
 
-        bot.log(f"🍾 Starting bottle collection for {duration_minutes} minutes...")
+        get_bot().log(f"🍾 Starting bottle collection for {duration_minutes} minutes...")
 
         from src.tasks import search_bottles
 
-        result = search_bottles(bot, duration_minutes)
+        result = search_bottles(get_bot(), duration_minutes)
 
         if result.get("success"):
-            bot.log(f"✅ Bottle collection started: {result.get('message', '')}")
+            get_bot().log(f"✅ Bottle collection started: {result.get('message', '')}")
 
             _schedule_next_bottles_task()
         else:
-            bot.log(f"❌ Bottle collection failed: {result.get('message', '')}")
+            get_bot().log(f"❌ Bottle collection failed: {result.get('message', '')}")
 
     except Exception as e:
-        bot.log(f"❌ Bottles task error: {e}")
+        get_bot().log(f"❌ Bottles task error: {e}")
         import traceback
 
         traceback.print_exc()
@@ -299,17 +316,21 @@ def _schedule_next_bottles_task():
 
     # Hole die ECHTE verbleibende Zeit aus dem Activity Status
     # (kann kürzer sein als konfiguriert durch Items/Konzentration)
+    actual_seconds_remaining = 0
     try:
-        activities = bot.get_activities_data(use_cache=True)
+        activities = get_bot().get_activities_data(use_cache=True)
         bottles_status = activities.get("bottles", {})
+        collecting = bottles_status.get("running", False)
         actual_seconds_remaining = bottles_status.get("seconds_remaining", 0)
-
-        if actual_seconds_remaining <= 0:
-            bot.log("⚠️ Could not get actual bottle timer, using configured duration")
-            actual_seconds_remaining = config.bottles_duration_minutes * 60
+        
+        if collecting and actual_seconds_remaining > 0:
+            # Task läuft noch - nur den Reschedule-Job setzen, nicht den Haupt-Job
+            pass
+        else:
+            actual_seconds_remaining = 0
     except Exception as e:
-        bot.log(f"⚠️ Error getting bottle timer: {e}, using configured duration")
-        actual_seconds_remaining = config.bottles_duration_minutes * 60
+        get_bot().log(f"⚠️ Error getting bottle timer: {e}, using configured duration")
+        actual_seconds_remaining = 0
 
     variation = random.uniform(0.8, 1.2)
     actual_pause_seconds = int(pause_minutes * 60 * variation)
@@ -319,13 +340,20 @@ def _schedule_next_bottles_task():
     actual_duration_minutes = actual_seconds_remaining // 60
     actual_pause_minutes = actual_pause_seconds // 60
 
-    bot.log(
-        f"⏰ Next bottle collection in ~{actual_duration_minutes + actual_pause_minutes} minutes (actual: {actual_duration_minutes}m collecting + {actual_pause_minutes}m pause)"
-    )
-
     from datetime import datetime, timedelta
 
     run_date = datetime.now() + timedelta(seconds=total_wait)
+
+    # Speichere next_run in BotConfig für Persistence
+    with get_session() as s:
+        config = s.query(BotConfig).first()
+        if config:
+            config.bottles_next_run = run_date
+
+    get_bot().log(
+        f"⏰ Next bottle collection in ~{actual_duration_minutes + actual_pause_minutes} minutes "
+        f"(collecting: {actual_duration_minutes}m + pause: {actual_pause_minutes}m)"
+    )
 
     scheduler.add_job(
         _bot_collect_bottles_task,
@@ -359,7 +387,7 @@ def _bot_training_task():
         with get_session() as s:
             config = s.query(BotConfig).first()
             if not config or not config.is_running or not config.training_enabled:
-                bot.log("⏭️ Training task skipped: bot not running or disabled")
+                get_bot().log("⏭️ Training task skipped: bot not running or disabled")
                 return
 
             try:
@@ -376,13 +404,13 @@ def _bot_training_task():
             autodrink_enabled = config.training_autodrink_enabled
             target_promille = config.training_target_promille
 
-        if not bot.is_logged_in(skip_log=True):
-            bot.log("❌ Training task: not logged in")
+        if not get_bot().is_logged_in(skip_log=True):
+            get_bot().log("❌ Training task: not logged in")
             return
-        skills_data = bot.get_skills_data()
+        skills_data = get_bot().get_skills_data()
         if skills_data.get("running_skill"):
             running = skills_data["running_skill"]
-            bot.log(
+            get_bot().log(
                 f"⏭️ Training already running: {running.get('name', 'Unknown')} [Level {running.get('level', '?')}]"
             )
             # Schedule nächsten Check nach verbleibender Zeit
@@ -400,65 +428,65 @@ def _bot_training_task():
                 if current_level < max_level:
                     valid_skills.append(skill_type)
                 else:
-                    bot.log(
+                    get_bot().log(
                         f"⏭️ {skill_type.upper()} max level reached ({current_level}/{max_level})"
                     )
 
         if not valid_skills:
-            bot.log("⏭️ No valid skills to train (all at max level)")
+            get_bot().log("⏭️ No valid skills to train (all at max level)")
             _schedule_next_training_task(skip_training=True)
             return
 
         if autodrink_enabled:
-            bot.log(f"🍺 Auto-Trinken aktiviert (Ziel: {target_promille:.2f}‰)")
+            get_bot().log(f"🍺 Auto-Trinken aktiviert (Ziel: {target_promille:.2f}‰)")
             from src.tasks import auto_drink_before_training
 
-            drink_result = auto_drink_before_training(bot, target_promille)
+            drink_result = auto_drink_before_training(get_bot(), target_promille)
 
             if drink_result.get("drank"):
-                bot.log(
+                get_bot().log(
                     f"✅ Auto-Trinken: {drink_result.get('message', '')} - Aktuell: {drink_result.get('current_promille', 0):.2f}‰"
                 )
             else:
-                bot.log(
+                get_bot().log(
                     f"ℹ️ Auto-Trinken: {drink_result.get('message', '')} - Aktuell: {drink_result.get('current_promille', 0):.2f}‰"
                 )
 
         selected_skill = random.choice(valid_skills)
 
-        bot.log(f"🎓 Starting training for: {selected_skill.upper()}...")
+        get_bot().log(f"🎓 Starting training for: {selected_skill.upper()}...")
 
         from src.tasks import start_training
 
-        result = start_training(bot, selected_skill)
+        result = start_training(get_bot(), selected_skill)
 
         if result.get("success"):
-            bot.log(f"✅ Training started: {result.get('message', '')}")
+            get_bot().log(f"✅ Training started: {result.get('message', '')}")
             
             # Nach erfolgreichem Training-Start: Ausnüchtern mit Essen
             if autodrink_enabled:
-                bot.log("🍔 Auto-Essen aktiviert - nüchtere aus...")
+                get_bot().log("🍔 Auto-Essen aktiviert - nüchtere aus...")
                 try:
-                    sober_result = bot.sober_up_with_food(target_promille=0.0)
+                    sober_result = get_bot().sober_up_with_food(target_promille=0.0)
                     
                     if sober_result.get("ate"):
-                        bot.log(
+                        get_bot().log(
                             f"✅ Auto-Essen: {sober_result.get('message', '')} - Aktuell: {sober_result.get('current_promille', 0):.2f}‰"
                         )
                     else:
-                        bot.log(
+                        get_bot().log(
                             f"ℹ️ Auto-Essen: {sober_result.get('message', '')} - Aktuell: {sober_result.get('current_promille', 0):.2f}‰"
                         )
                 except Exception as e:
-                    bot.log(f"⚠️ Auto-Essen fehlgeschlagen: {e}")
+                    get_bot().log(f"⚠️ Auto-Essen fehlgeschlagen: {e}")
             
             _schedule_next_training_task()
         else:
-            bot.log(f"❌ Training failed: {result.get('message', '')}")
+            get_bot().log(f"❌ Training failed: {result.get('message', '')}")
             _schedule_next_training_task(skip_training=True)
 
     except Exception as e:
-        bot.log(f"❌ Training task error: {e}")
+        get_bot().log(f"❌ Training task error: {e}")
         import traceback
 
         traceback.print_exc()
@@ -469,6 +497,7 @@ def _schedule_next_training_task(skip_training: bool = False):
     import random
 
     from src.models import BotConfig
+    from src.constants import PAUSE_VARIATION_MAX, PAUSE_VARIATION_MIN
 
     with get_session() as s:
         config = s.query(BotConfig).first()
@@ -481,21 +510,19 @@ def _schedule_next_training_task(skip_training: bool = False):
 
     if not skip_training:
         try:
-            skills_data = bot.get_skills_data()
+            skills_data = get_bot().get_skills_data()
             running = skills_data.get("running_skill")
             if running:
                 actual_seconds_remaining = running.get("seconds_remaining", 0)
                 if actual_seconds_remaining > 0:
-                    bot.log(
+                    get_bot().log(
                         f"⏰ Training running, {actual_seconds_remaining}s remaining (~{actual_seconds_remaining // 60}m)"
                     )
         except Exception as e:
-            bot.log(f"⚠️ Could not get training timer: {e}, using pause only")
+            get_bot().log(f"⚠️ Could not get training timer: {e}, using pause only")
             actual_seconds_remaining = 0
 
     # Zufällige Variation (+/- 20%)
-    from src.constants import PAUSE_VARIATION_MAX, PAUSE_VARIATION_MIN
-
     variation = random.uniform(PAUSE_VARIATION_MIN, PAUSE_VARIATION_MAX)
     actual_pause_seconds = int(pause_minutes * 60 * variation)
 
@@ -505,18 +532,23 @@ def _schedule_next_training_task(skip_training: bool = False):
     actual_duration_minutes = actual_seconds_remaining // 60
     actual_pause_minutes = actual_pause_seconds // 60
 
-    if actual_seconds_remaining > 0:
-        bot.log(
-            f"⏰ Next training in ~{actual_duration_minutes + actual_pause_minutes} minutes ({actual_duration_minutes}m training + {actual_pause_minutes}m pause)"
-        )
-    else:
-        bot.log(f"⏰ Next training in ~{actual_pause_minutes} minutes (pause only)")
-
     from datetime import datetime, timedelta
 
-    from src.constants import TRAINING_JOB_ID
-
     run_date = datetime.now() + timedelta(seconds=total_wait)
+
+    # Speichere next_run in BotConfig für Persistence
+    with get_session() as s:
+        config = s.query(BotConfig).first()
+        if config:
+            config.training_next_run = run_date
+
+    if actual_seconds_remaining > 0:
+        get_bot().log(
+            f"⏰ Next training in ~{actual_duration_minutes + actual_pause_minutes} minutes "
+            f"(training: {actual_duration_minutes}m + pause: {actual_pause_minutes}m)"
+        )
+    else:
+        get_bot().log(f"⏰ Next training in ~{actual_pause_minutes} minutes (pause only)")
 
     scheduler.add_job(
         _bot_training_task,
@@ -632,10 +664,11 @@ def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
     """Health check endpoint."""
+    current_bot = get_bot()
     return {
         "ok": True,
         "version": "0.2.0",
-        "bot_logged_in": bool(getattr(bot, "logged_in", False)),
+        "bot_logged_in": bool(getattr(current_bot, "logged_in", False)),
     }
 
 
@@ -718,7 +751,11 @@ async def event_stream(request: Request):
         queue = event_bus.subscribe()
 
         try:
+            import time
+            from queue import Empty
+
             # Sende initiales Keep-Alive
+            last_keepalive = time.time()
             yield ": keep-alive\n\n"
 
             while True:
@@ -727,13 +764,20 @@ async def event_stream(request: Request):
                     break
 
                 try:
-                    # FIXED: get_nowait() statt blocking get(timeout=30)!
+                    # Non-blocking pop of queued event
                     event = queue.get_nowait()
                     yield event.to_sse()
-                except:
-                    # Queue leer - sende keep-alive und warte kurz
-                    yield ": keep-alive\n\n"
-                    await asyncio.sleep(5)  # 5s zwischen keep-alives
+                    # Continue to drain any immediately available events
+                    continue
+                except Empty:
+                    # Keine Events: sende nur gelegentlich Keep-Alive
+                    now = time.time()
+                    if now - last_keepalive > 15:
+                        yield ": keep-alive\n\n"
+                        last_keepalive = now
+
+                    # Kurzes Sleep um CPU-Spin zu vermeiden, aber häufig prüfen
+                    await asyncio.sleep(0.1)
 
         finally:
             # Cleanup: Entferne Queue
@@ -773,14 +817,15 @@ def dashboard_status() -> Dict[str, Any]:
         Complete dashboard state
     """
     try:
+        current_bot = get_bot()
         # Aktualisiere Activity-Status mit Cache (180s)
-        if getattr(bot, "logged_in", False):
-            bot.refresh_status(force=False)
+        if getattr(current_bot, "logged_in", False):
+            current_bot.refresh_status(force=False)
             perf_monitor.record_cache_hit()
         else:
             perf_monitor.record_cache_miss()
 
-        data = bot.get_penner_data()
+        data = current_bot.get_penner_data()
         config = get_bot_config()
 
         with get_session() as s:
@@ -816,20 +861,20 @@ def dashboard_status() -> Dict[str, Any]:
                 penner_data["points_trend"] = points_trend["formatted"]
 
         return {
-            "logged_in": bool(getattr(bot, "logged_in", False)),
+            "logged_in": bool(getattr(current_bot, "logged_in", False)),
             "penner": penner_data,
             "activities": {
-                "skill_running": getattr(bot, "skill_running", False),
+                "skill_running": getattr(current_bot, "skill_running", False),
                 "skill_seconds_remaining": getattr(
-                    bot, "skill_seconds_remaining", None
+                    current_bot, "skill_seconds_remaining", None
                 ),
-                "fight_running": getattr(bot, "fight_running", False),
+                "fight_running": getattr(current_bot, "fight_running", False),
                 "fight_seconds_remaining": getattr(
-                    bot, "fight_seconds_remaining", None
+                    current_bot, "fight_seconds_remaining", None
                 ),
-                "bottles_running": getattr(bot, "bottles_running", False),
+                "bottles_running": getattr(current_bot, "bottles_running", False),
                 "bottles_seconds_remaining": getattr(
-                    bot, "bottles_seconds_remaining", None
+                    current_bot, "bottles_seconds_remaining", None
                 ),
             },
             "bot": {"running": config["is_running"], "config": config},
@@ -932,7 +977,8 @@ def login(payload: LoginRequest) -> Dict[str, Any]:
                 logger.info("Local password verification successful")
 
         # 2. Proceed with Pennergame login
-        success = bot.login(payload.username, payload.password)
+        current_bot = get_bot()
+        success = current_bot.login(payload.username, payload.password)
 
         if success:
             # Invalidate all caches after login
@@ -945,15 +991,15 @@ def login(payload: LoginRequest) -> Dict[str, Any]:
 
             emit_status_changed(
                 {
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 }
             )
-            penner_data = bot.get_penner_data()
+            penner_data = current_bot.get_penner_data()
             if penner_data:
                 emit_penner_data_updated(penner_data)
 
@@ -974,12 +1020,13 @@ def logout() -> Dict[str, Any]:
             s.commit()
 
         # Reset bot state
-        bot.logged_in = False
-        bot.cookies = {}
+        current_bot = get_bot()
+        current_bot.logged_in = False
+        current_bot.cookies = {}
 
         # Clear bot client cookies if available
         try:
-            bot.client.cookies.clear()
+            current_bot.client.cookies.clear()
         except Exception:
             pass
 
@@ -994,11 +1041,14 @@ def auto_login() -> Dict[str, Any]:
     Auto-login endpoint that attempts to login using saved credentials.
     This is called by the frontend when the login page loads to attempt
     automatic re-login without showing the login form.
-    
+
     Returns:
         Success status and login state
     """
     try:
+        # Ensure bot is initialized
+        current_bot = get_bot()
+
         # Check if we have saved credentials first
         with get_session() as s:
             username_setting = s.query(Settings).filter_by(key="username").first()
@@ -1008,20 +1058,20 @@ def auto_login() -> Dict[str, Any]:
                 return {
                     "success": False,
                     "message": "No saved credentials",
-                    "logged_in": bool(getattr(bot, "logged_in", False))
+                    "logged_in": bool(getattr(current_bot, "logged_in", False))
                 }
 
         # Attempt auto-relogin via the bot
-        login_result = bot._attempt_auto_relogin()
-        
+        login_result = current_bot._attempt_auto_relogin()
+
         if login_result:
             # Invalidate caches after successful login
             invalidate_cache_pattern("dashboard")
             invalidate_cache_pattern("logs")
             invalidate_cache_pattern("stats")
-            
+
             logger.info("Auto-login successful")
-            
+
             return {
                 "success": True,
                 "message": "Auto-login successful",
@@ -1029,7 +1079,7 @@ def auto_login() -> Dict[str, Any]:
             }
         else:
             logger.warning("Auto-login failed")
-            
+
             return {
                 "success": False,
                 "message": "Auto-login failed - please login manually",
@@ -1040,7 +1090,7 @@ def auto_login() -> Dict[str, Any]:
         return {
             "success": False,
             "message": str(e),
-            "logged_in": bool(getattr(bot, "logged_in", False))
+            "logged_in": bool(getattr(get_bot(), "logged_in", False))
         }
 
 
@@ -1048,30 +1098,31 @@ def auto_login() -> Dict[str, Any]:
 def refresh_status() -> Dict[str, Any]:
     """Erzwinge eine sofortige Aktualisierung des Status (ignoriert Cache)"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        success = bot.refresh_status(force=True)
+        success = current_bot.refresh_status(force=True)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to refresh status")
 
-        data = bot.get_penner_data()
+        data = current_bot.get_penner_data()
         return {
             "success": True,
-            "logged_in": bool(getattr(bot, "logged_in", False)),
+            "logged_in": bool(getattr(current_bot, "logged_in", False)),
             "penner": data,
             "activities": {
-                "skill_running": getattr(bot, "skill_running", False),
+                "skill_running": getattr(current_bot, "skill_running", False),
                 "skill_seconds_remaining": getattr(
-                    bot, "skill_seconds_remaining", None
+                    current_bot, "skill_seconds_remaining", None
                 ),
-                "fight_running": getattr(bot, "fight_running", False),
+                "fight_running": getattr(current_bot, "fight_running", False),
                 "fight_seconds_remaining": getattr(
-                    bot, "fight_seconds_remaining", None
+                    current_bot, "fight_seconds_remaining", None
                 ),
-                "bottles_running": getattr(bot, "bottles_running", False),
+                "bottles_running": getattr(current_bot, "bottles_running", False),
                 "bottles_seconds_remaining": getattr(
-                    bot, "bottles_seconds_remaining", None
+                    current_bot, "bottles_seconds_remaining", None
                 ),
             },
         }
@@ -1085,21 +1136,22 @@ def refresh_status() -> Dict[str, Any]:
 def activities_overview() -> Dict[str, Any]:
     """Gibt einen Überblick über alle laufenden Aktivitäten zurück"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
         return {
             "skill": {
-                "running": getattr(bot, "skill_running", False),
-                "seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
+                "running": getattr(current_bot, "skill_running", False),
+                "seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
             },
             "fight": {
-                "running": getattr(bot, "fight_running", False),
-                "seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
+                "running": getattr(current_bot, "fight_running", False),
+                "seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
             },
             "bottles": {
-                "running": getattr(bot, "bottles_running", False),
-                "seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                "running": getattr(current_bot, "bottles_running", False),
+                "seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
             },
         }
     except HTTPException:
@@ -1109,10 +1161,9 @@ def activities_overview() -> Dict[str, Any]:
 
 
 @app.get("/api/logs")
-@cached(ttl=10, key_prefix="logs")
 def get_logs(limit: int = 50) -> Dict[str, Any]:
     """
-    Get recent logs with 10s cache.
+    Get recent logs (no cache for real-time log viewing).
 
     Args:
         limit: Maximum number of logs to return
@@ -1132,7 +1183,8 @@ def get_logs(limit: int = 50) -> Dict[str, Any]:
 @app.get("/api/request_html")
 def request_html() -> Dict[str, Any]:
     try:
-        html = getattr(getattr(bot, "request", None), "text", None)
+        current_bot = get_bot()
+        html = getattr(getattr(current_bot, "request", None), "text", None)
         return {"html": html or ""}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1200,7 +1252,7 @@ def database_dump() -> Dict[str, Any]:
 @app.post("/api/manual/check_login")
 def manual_check_login() -> Dict[str, Any]:
     try:
-        status = bot.is_logged_in()
+        status = get_bot().is_logged_in()
         return {"logged_in": bool(status)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1209,10 +1261,11 @@ def manual_check_login() -> Dict[str, Any]:
 @app.post("/api/manual/refresh_data")
 def manual_refresh_data() -> Dict[str, Any]:
     try:
+        current_bot = get_bot()
         # is_logged_in() fetched overview and updated DB already
-        status = bot.is_logged_in()
+        status = current_bot.is_logged_in()
         # get_penner_data() just reads from DB - no additional request
-        data = bot.get_penner_data()
+        data = current_bot.get_penner_data()
         return {"logged_in": bool(status), "penner": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1221,6 +1274,7 @@ def manual_refresh_data() -> Dict[str, Any]:
 @app.post("/api/settings")
 def update_settings(payload: SettingsRequest) -> Dict[str, Any]:
     try:
+        current_bot = get_bot()
         with get_session() as s:
             if payload.user_agent is not None:
                 # Update or create user_agent setting
@@ -1233,9 +1287,9 @@ def update_settings(payload: SettingsRequest) -> Dict[str, Any]:
                 s.commit()
 
                 # Apply to bot
-                bot.user_agent = payload.user_agent
+                current_bot.user_agent = payload.user_agent
                 try:
-                    bot.client.headers["User-Agent"] = payload.user_agent
+                    current_bot.client.headers["User-Agent"] = payload.user_agent
                 except Exception:
                     pass
         return {"ok": True}
@@ -1291,6 +1345,7 @@ def update_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 def bot_state() -> Dict[str, Any]:
     """Hole Bot-Status"""
     try:
+        current_bot = get_bot()
         config = get_bot_config()
         bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
         reschedule_job = scheduler.get_job(f"{BOTTLE_JOB_ID}-reschedule")
@@ -1299,7 +1354,7 @@ def bot_state() -> Dict[str, Any]:
 
         # Debug-Informationen
         debug_info = {
-            "is_logged_in": bot.is_logged_in(),
+            "is_logged_in": current_bot.is_logged_in(),
             "scheduler_running": scheduler.running,
             "all_jobs": [job.id for job in scheduler.get_jobs()],
         }
@@ -1325,104 +1380,236 @@ def bot_start() -> Dict[str, Any]:
 
         from src.events import emit_bot_state_changed
 
-        global bot
-        if bot is None:
-            bot = PennerBot()
+        # Use singleton to avoid double initialization
+        current_bot = get_bot()
         
-        # Start scheduler
+        # Hole Config VOR dem Start
+        config = get_bot_config()
+        
+        # === SCHEDULER WIEDERHERSTELLEN ===
+        # Starte Scheduler zuerst - Jobs werden aus DB wiederhergestellt
         start_scheduler()
+        
+        # Prüfe ob Jobs in der DB sind und hole sie
+        existing_jobs = scheduler.get_jobs()
+        current_bot.log(f"[SCHEDULER] Found {len(existing_jobs)} existing jobs in scheduler")
+        # Wenn Jobs fehlen (z.B. weil sie während der Laufzeit ausgelaufen sind),
+        # versuche sie anhand der in der DB gespeicherten next_run Zeiten wiederherzustellen.
+        try:
+            from datetime import datetime, timedelta
+            from src.models import BotConfig
 
+            with get_session() as s:
+                config_db = s.query(BotConfig).first()
+
+            if config_db:
+                # Bottles
+                bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
+                if not bottle_job and config_db.bottles_next_run:
+                    if config_db.bottles_next_run > datetime.now().astimezone():
+                        current_bot.log(f"[SCHEDULER] Restoring bottle job from BotConfig for {config_db.bottles_next_run}")
+                        scheduler.add_job(
+                            _bot_collect_bottles_task,
+                            trigger="date",
+                            run_date=config_db.bottles_next_run,
+                            id=BOTTLE_JOB_ID,
+                            coalesce=True,
+                            max_instances=1,
+                            replace_existing=True,
+                        )
+                        scheduler.add_job(
+                            _schedule_next_bottles_task,
+                            trigger="date",
+                            run_date=config_db.bottles_next_run + timedelta(seconds=10),
+                            id=f"{BOTTLE_JOB_ID}-reschedule",
+                            coalesce=True,
+                            max_instances=1,
+                            replace_existing=True,
+                        )
+                    else:
+                        # next_run in der Vergangenheit -> sofort nachstarten
+                        current_bot.log("[SCHEDULER] Bottle next_run in past, scheduling immediate restart")
+                        scheduler.add_job(
+                            _bot_collect_bottles_task,
+                            trigger="date",
+                            run_date=datetime.now() + timedelta(seconds=5),
+                            id=BOTTLE_JOB_ID,
+                            coalesce=True,
+                            max_instances=1,
+                            replace_existing=True,
+                        )
+
+                # Training
+                training_job = scheduler.get_job(TRAINING_JOB_ID)
+                if not training_job and config_db.training_next_run:
+                    if config_db.training_next_run > datetime.now().astimezone():
+                        current_bot.log(f"[SCHEDULER] Restoring training job from BotConfig for {config_db.training_next_run}")
+                        scheduler.add_job(
+                            _bot_training_task,
+                            trigger="date",
+                            run_date=config_db.training_next_run,
+                            id=TRAINING_JOB_ID,
+                            coalesce=True,
+                            max_instances=1,
+                            replace_existing=True,
+                        )
+                        scheduler.add_job(
+                            _schedule_next_training_task,
+                            trigger="date",
+                            run_date=config_db.training_next_run + timedelta(seconds=10),
+                            id=f"{TRAINING_JOB_ID}-reschedule",
+                            coalesce=True,
+                            max_instances=1,
+                            replace_existing=True,
+                        )
+                    else:
+                        current_bot.log("[SCHEDULER] Training next_run in past, scheduling immediate restart")
+                        scheduler.add_job(
+                            _bot_training_task,
+                            trigger="date",
+                            run_date=datetime.now() + timedelta(seconds=5),
+                            id=TRAINING_JOB_ID,
+                            coalesce=True,
+                            max_instances=1,
+                            replace_existing=True,
+                        )
+        except Exception as e:
+            current_bot.log(f"⚠️ Could not restore jobs from BotConfig: {e}")
+        
         # Update Status
         update_bot_config(is_running=True, last_started=datetime.now())
 
-        bot.log("[RUNNING] Bot started")
-
-        # Debug: Hole Config
-        config = get_bot_config()
-        bot.log(f"[CONFIG] Config: bottles_enabled={config['bottles_enabled']}, duration={config['bottles_duration_minutes']}min, pause={config['bottles_pause_minutes']}min")
+        current_bot.log("[RUNNING] Bot started")
+        current_bot.log(f"[CONFIG] Config: bottles_enabled={config['bottles_enabled']}, duration={config['bottles_duration_minutes']}min, pause={config['bottles_pause_minutes']}min")
 
         # Emit Event für UI
         emit_bot_state_changed(True, config)
 
         # Debug: Login-Status (ohne redundante Logs)
-        is_logged_in = bot.is_logged_in(skip_log=True)
-        bot.log(f"[LOGIN] Login status: {is_logged_in}")
+        is_logged_in = current_bot.is_logged_in(skip_log=True)
+        current_bot.log(f"[LOGIN] Login status: {is_logged_in}")
 
         if not is_logged_in:
-            bot.log("⚠️ Bot is not logged in! Please login first.")
+            current_bot.log("⚠️ Bot is not logged in! Please login first.")
             return {
                 "running": True,
                 "config": config,
                 "warning": "Bot not logged in - tasks will be skipped until login",
             }
 
+        # === AKTIVITÄTS-WIEDERHERSTELLUNG ===
         # Prüfe auf fortzusetzende Aktivitäten vom letzten Lauf
-        pending = bot.get_pending_activity_resume()
+        pending = current_bot.get_pending_activity_resume()
         
         if pending:
-            bot.log(f"[RESTORE] Found pending activities to resume: bottles={pending.get('bottles')}, skill={pending.get('skill')}")
+            current_bot.log(f"[RESTORE] Found pending activities: bottles={pending.get('bottles')}, skill={pending.get('skill')}")
+        else:
+            current_bot.log("[RESTORE] No pending activities from previous run")
+        
+        # === FLASCHEN SAMMELN ===
+        if config["bottles_enabled"]:
+            bottles_pending = pending.get("bottles", {}) if pending else {}
+            bottles_running = bottles_pending.get("running", False)
             
-            # Bottle collecting - wenn noch aktiv, nur schedule
-            if pending.get("bottles", {}).get("running") and config["bottles_enabled"]:
-                seconds_remaining = pending["bottles"].get("seconds_remaining", 0)
+            # Prüfe ob der Job schon in der DB ist
+            bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
+            
+            if bottle_job:
+                # Job existiert bereits - lass ihn laufen
+                next_run = bottle_job.next_run_time
+                if next_run:
+                    # Ensure both datetimes are timezone-aware for comparison
+                    now = datetime.now().astimezone()
+                    if next_run.tzinfo is None:
+                        # next_run is naive, make it aware using local timezone
+                        import tzlocal
+                        local_tz = tzlocal.get_localzone()
+                        next_run = next_run.replace(tzinfo=local_tz)
+                    seconds_until = (next_run - now).total_seconds()
+                    minutes_until = int(seconds_until // 60)
+                    if minutes_until < 0:
+                        minutes_until = 0
+                    current_bot.log(f"[RESTORE] Bottle job already scheduled for ~{minutes_until}m")
+                else:
+                    current_bot.log("[RESTORE] Bottle job exists but no next run time")
+            elif bottles_running:
+                # Kein Scheduler-Job, aber Bottle-Activity läuft noch auf dem Server
+                seconds_remaining = bottles_pending.get("seconds_remaining", 0)
                 if seconds_remaining > 0:
                     minutes_remaining = seconds_remaining // 60
-                    bot.log(f"🍾 Resuming bottle collection tracking - {seconds_remaining}s remaining (~{minutes_remaining}m)")
-                    # Nur schedule, nicht neu starten!
+                    current_bot.log(f"🍾 Bottle collecting still running on server - {seconds_remaining}s remaining (~{minutes_remaining}m)")
+                    # Setze Scheduler für Fortsetzung nach dem aktuellen Durchgang
                     _schedule_next_bottles_task()
                 else:
                     # Keine Zeit mehr - starte neuen Durchgang
-                    bot.log("🍾 Starting fresh bottle collection (previous completed)")
+                    current_bot.log("🍾 Bottle collection completed, starting fresh")
                     _bot_collect_bottles_task()
-            elif config["bottles_enabled"]:
-                # Keine laufende Aktivität - starte normal
-                bot.log("🍾 Starting bottle collection task...")
-                _bot_collect_bottles_task()
             else:
-                bot.log("⏭️ Bottle collection disabled in config")
+                # Weder Job noch laufende Activity - starte normal
+                current_bot.log("🍾 Starting bottle collection task...")
+                _bot_collect_bottles_task()
+        else:
+            current_bot.log("⏭️ Bottle collection disabled in config")
+            # Entferne existierende Jobs wenn deaktiviert
+            for job_id in [BOTTLE_JOB_ID, f"{BOTTLE_JOB_ID}-reschedule"]:
+                job = scheduler.get_job(job_id)
+                if job:
+                    job.remove()
+        
+        # === TRAINING ===
+        if config["training_enabled"]:
+            skill_pending = pending.get("skill", {}) if pending else {}
+            skill_running = skill_pending.get("running", False)
             
-            # Training - wenn noch aktiv, nur schedule
-            if pending.get("skill", {}).get("running") and config["training_enabled"]:
-                seconds_remaining = pending["skill"].get("seconds_remaining", 0)
+            # Prüfe ob der Job schon in der DB ist
+            training_job = scheduler.get_job(TRAINING_JOB_ID)
+            
+            if training_job:
+                # Job existiert bereits
+                next_run = training_job.next_run_time
+                if next_run:
+                    # Ensure both datetimes are timezone-aware for comparison
+                    now = datetime.now().astimezone()
+                    if next_run.tzinfo is None:
+                        import tzlocal
+                        local_tz = tzlocal.get_localzone()
+                        next_run = next_run.replace(tzinfo=local_tz)
+                    seconds_until = (next_run - now).total_seconds()
+                    minutes_until = int(seconds_until // 60)
+                    if minutes_until < 0:
+                        minutes_until = 0
+                    current_bot.log(f"[RESTORE] Training job already scheduled for ~{minutes_until}m")
+                else:
+                    current_bot.log("[RESTORE] Training job exists but no next run time")
+            elif skill_running:
+                # Kein Scheduler-Job, aber Training läuft noch auf dem Server
+                seconds_remaining = skill_pending.get("seconds_remaining", 0)
                 if seconds_remaining > 0:
                     minutes_remaining = seconds_remaining // 60
-                    subtype = pending["skill"].get("subtype", "")
-                    bot.log(f"🎓 Resuming training tracking ({subtype or 'unknown'}) - {seconds_remaining}s remaining (~{minutes_remaining}m)")
-                    # Nur schedule, nicht neu starten!
+                    current_bot.log(f"🎓 Training still running on server - {seconds_remaining}s remaining (~{minutes_remaining}m)")
+                    # Setze Scheduler für Fortsetzung
                     _schedule_next_training_task()
                 else:
                     # Keine Zeit mehr - starte neuen Durchgang
-                    bot.log("🎓 Starting fresh training (previous completed)")
+                    current_bot.log("🎓 Training completed, starting fresh")
                     _bot_training_task()
-            elif config["training_enabled"]:
-                # Keine laufende Aktivität - starte normal
-                bot.log("🎓 Starting training task...")
-                _bot_training_task()
             else:
-                bot.log("⏭️ Training disabled in config")
-                
-            bot.log("[RESTORE] Activity resumption check complete")
+                # Weder Job noch laufende Activity - starte normal
+                current_bot.log("🎓 Starting training task...")
+                _bot_training_task()
         else:
-            # Keine ausstehenden Aktivitäten - starte normal
-            bot.log("[RESTORE] No pending activities - starting fresh")
-            
-            # Starte Flaschen-Task sofort
-            if config["bottles_enabled"]:
-                bot.log("🚀 Starting bottle collection task...")
-                _bot_collect_bottles_task()
-            else:
-                bot.log("⏭️ Bottle collection disabled in config")
-
-            # Starte Training-Task sofort
-            if config["training_enabled"]:
-                bot.log("🚀 Starting training task...")
-                _bot_training_task()
-            else:
-                bot.log("⏭️ Training disabled in config")
+            current_bot.log("⏭️ Training disabled in config")
+            # Entferne existierende Jobs wenn deaktiviert
+            for job_id in [TRAINING_JOB_ID, f"{TRAINING_JOB_ID}-reschedule"]:
+                job = scheduler.get_job(job_id)
+                if job:
+                    job.remove()
+                    
+        current_bot.log("[RESTORE] Activity restore complete")
 
         # Auto-Sell: Prüfe sofort beim Start ob Bedingungen erfüllt sind
         if config.get("bottles_autosell_enabled"):
-            bot.log("💎 Auto-Sell ready (event-based)")
+            current_bot.log("💎 Auto-Sell ready (event-based)")
             # Trigger initiale Prüfung
             try:
                 from src.models import BottlePrice
@@ -1432,13 +1619,13 @@ def bot_start() -> Dict[str, Any]:
                         s.query(BottlePrice).order_by(BottlePrice.id.desc()).first()
                     )
                     if last_price:
-                        bot._trigger_auto_sell_check(last_price.price_cents)
+                        current_bot._trigger_auto_sell_check(last_price.price_cents)
             except Exception as e:
-                bot.log(f"⚠️ Initial auto-sell check failed: {e}")
+                current_bot.log(f"⚠️ Initial auto-sell check failed: {e}")
 
         return {"running": True, "config": get_bot_config()}
     except Exception as e:
-        bot.log(f"❌ Bot start error: {e}")
+        get_bot().log(f"❌ Bot start error: {e}")
         import traceback
 
         traceback.print_exc()
@@ -1452,6 +1639,19 @@ def bot_stop() -> Dict[str, Any]:
         from datetime import datetime
 
         from src.events import emit_bot_state_changed
+
+        # Hole aktuelle Jobs um next_run Zeiten zu speichern
+        bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
+        training_job = scheduler.get_job(TRAINING_JOB_ID)
+        
+        with get_session() as s:
+            config = s.query(BotConfig).first()
+            if config:
+                # Speichere next_run Zeiten für Restore beim nächsten Start
+                if bottle_job and bottle_job.next_run_time:
+                    config.bottles_next_run = bottle_job.next_run_time
+                if training_job and training_job.next_run_time:
+                    config.training_next_run = training_job.next_run_time
 
         # Update Status
         update_bot_config(is_running=False, last_stopped=datetime.now())
@@ -1467,7 +1667,7 @@ def bot_stop() -> Dict[str, Any]:
             if job:
                 job.remove()
 
-        bot.log("[STOPPED] Bot stopped")
+        get_bot().log("[STOPPED] Bot stopped")
 
         config = get_bot_config()
 
@@ -1492,10 +1692,11 @@ def collect_bottles(payload: BottleCollectRequest) -> Dict[str, Any]:
     try:
         from src.tasks import search_bottles
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = search_bottles(bot, payload.time_minutes)
+        result = search_bottles(current_bot, payload.time_minutes)
         
         if result.get("success"):
             # Invalidiere Cache
@@ -1511,13 +1712,14 @@ def collect_bottles(payload: BottleCollectRequest) -> Dict[str, Any]:
                 emit_activity_started("bottles", duration)
                 
                 # Sende Activity-Status
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after bottles start: {e}")
@@ -1534,10 +1736,11 @@ def bottles_status(force_refresh: bool = False) -> Dict[str, Any]:
     try:
         from src.tasks import get_bottles_status
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = get_bottles_status(bot, force_refresh=force_refresh)
+        result = get_bottles_status(current_bot, force_refresh=force_refresh)
 
         if result.get("success"):
             bottles = result.get("bottles", {})
@@ -1565,10 +1768,11 @@ def cancel_bottles() -> Dict[str, Any]:
     try:
         from src.tasks import cancel_bottle_collecting
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = cancel_bottle_collecting(bot)
+        result = cancel_bottle_collecting(current_bot)
         
         if result.get("success"):
             # Invalidiere Cache
@@ -1607,11 +1811,12 @@ def sell_bottles(payload: dict) -> Dict[str, Any]:
     try:
         from src.tasks import sell_bottles as sell_bottles_task
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
         amount = payload.get("amount", 1)
-        result = sell_bottles_task(bot, amount)
+        result = sell_bottles_task(current_bot, amount)
         
         if result.get("success"):
             # Invalidiere Cache
@@ -1623,7 +1828,7 @@ def sell_bottles(payload: dict) -> Dict[str, Any]:
                 from src.events import emit_money_changed
                 
                 # Geld hat sich geändert
-                penner_data = bot.get_penner_data()
+                penner_data = get_bot().get_penner_data()
                 if penner_data and "money_raw" in penner_data:
                     emit_money_changed(penner_data["money_raw"])
             except Exception as e:
@@ -1642,10 +1847,11 @@ def empty_cart() -> Dict[str, Any]:
     try:
         from src.tasks import empty_bottle_cart
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = empty_bottle_cart(bot)
+        result = empty_bottle_cart(current_bot)
         return result
     except HTTPException:
         raise
@@ -1659,10 +1865,11 @@ def bottles_inventory() -> Dict[str, Any]:
     try:
         from src.tasks import get_bottles_inventory
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = get_bottles_inventory(bot)
+        result = get_bottles_inventory(current_bot)
         if result.get("success"):
             return result
         else:
@@ -1688,10 +1895,11 @@ def start_concentration_mode(payload: ConcentrationStartRequest) -> Dict[str, An
     try:
         from src.tasks import start_concentration
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = start_concentration(bot, payload.mode)
+        result = start_concentration(current_bot, payload.mode)
         return result
     except HTTPException:
         raise
@@ -1705,10 +1913,11 @@ def stop_concentration_mode() -> Dict[str, Any]:
     try:
         from src.tasks import stop_concentration
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = stop_concentration(bot)
+        result = stop_concentration(current_bot)
         return result
     except HTTPException:
         raise
@@ -1721,10 +1930,11 @@ def concentration_status(force_refresh: bool = False) -> Dict[str, Any]:
     try:
         from src.tasks import get_concentration_status
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = get_concentration_status(bot, force_refresh=force_refresh)
+        result = get_concentration_status(current_bot, force_refresh=force_refresh)
 
         if result.get("success"):
             concentration = result.get("concentration", {})
@@ -1752,10 +1962,10 @@ def concentration_status(force_refresh: bool = False) -> Dict[str, Any]:
 def get_skills() -> Dict[str, Any]:
     """Hole aktuelle Weiterbildungs-Informationen"""
     try:
-        if not bot.logged_in:
+        if not get_bot().logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        skills_data = bot.get_skills_data()
+        skills_data = get_bot().get_skills_data()
         return {
             "success": True,
             "running_skill": skills_data.get("running_skill"),
@@ -1775,7 +1985,8 @@ class SkillStartRequest(BaseModel):
 def start_skill(payload: SkillStartRequest) -> Dict[str, Any]:
     """Starte eine Weiterbildung (Angriff, Verteidigung, Geschicklichkeit)"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
         if payload.skill_type not in ["att", "def", "agi"]:
@@ -1783,7 +1994,7 @@ def start_skill(payload: SkillStartRequest) -> Dict[str, Any]:
                 status_code=400, detail="Invalid skill_type. Must be att, def, or agi"
             )
 
-        result = bot.start_skill(payload.skill_type)
+        result = current_bot.start_skill(payload.skill_type)
 
         if result.get("success"):
             # Invalidiere Cache
@@ -1795,17 +2006,18 @@ def start_skill(payload: SkillStartRequest) -> Dict[str, Any]:
                 from src.events import emit_activity_started, emit_status_changed
                 
                 # Activity gestartet
-                duration = getattr(bot, "skill_seconds_remaining", 0)
+                duration = getattr(get_bot(), "skill_seconds_remaining", 0)
                 emit_activity_started("skill", duration)
                 
                 # Sende Activity-Status
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after skill start: {e}")
@@ -1825,10 +2037,11 @@ def start_skill(payload: SkillStartRequest) -> Dict[str, Any]:
 def cancel_skill() -> Dict[str, Any]:
     """Beende die laufende Weiterbildung"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = bot.cancel_skill()
+        result = current_bot.cancel_skill()
 
         if result.get("success"):
             # Invalidiere Cache
@@ -1843,13 +2056,14 @@ def cancel_skill() -> Dict[str, Any]:
                 emit_activity_completed("skill")
                 
                 # Sende Activity-Status
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after skill cancel: {e}")
@@ -1871,10 +2085,11 @@ def training_status(force_refresh: bool = False) -> Dict[str, Any]:
     try:
         from src.tasks import get_training_status
 
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = get_training_status(bot, force_refresh=force_refresh)
+        result = get_training_status(current_bot, force_refresh=force_refresh)
 
         if result.get("success"):
             return {
@@ -1896,10 +2111,10 @@ def training_status(force_refresh: bool = False) -> Dict[str, Any]:
 def get_drinks() -> Dict[str, Any]:
     """Hole verfügbare Getränke aus dem Inventar"""
     try:
-        if not bot.logged_in:
+        if not get_bot().logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        return bot.get_drinks_data()
+        return get_bot().get_drinks_data()
     except HTTPException:
         raise
     except Exception as e:
@@ -1925,7 +2140,7 @@ def use_drink(payload: DrinkRequest) -> Dict[str, Any]:
                 status_code=400, detail="Amount must be between 1 and 100"
             )
 
-        result = bot.drink(
+        result = get_bot().drink(
             item_name=payload.item_name,
             item_id=payload.item_id,
             promille=payload.promille,
@@ -1946,13 +2161,14 @@ def use_drink(payload: DrinkRequest) -> Dict[str, Any]:
                     emit_promille_changed(result["new_promille"])
                 
                 # Sende Activity-Status (falls sich Counter geändert haben)
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after drink: {e}")
@@ -1972,10 +2188,11 @@ def use_drink(payload: DrinkRequest) -> Dict[str, Any]:
 def pump_stomach() -> Dict[str, Any]:
     """Lasse den Magen auspumpen (kostet €500.00)"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = bot.pump_stomach()
+        result = current_bot.pump_stomach()
 
         if result.get("success"):
             # Invalidiere Cache
@@ -1991,18 +2208,19 @@ def pump_stomach() -> Dict[str, Any]:
                     emit_promille_changed(result["new_promille"])
                 
                 # Geld hat sich geändert (€500.00 bezahlt)
-                penner_data = bot.get_penner_data()
+                penner_data = get_bot().get_penner_data()
                 if penner_data and "money" in penner_data:
                     emit_money_changed(penner_data["money_raw"])
                 
                 # Sende Activity-Status
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after pump: {e}")
@@ -2022,10 +2240,10 @@ def pump_stomach() -> Dict[str, Any]:
 def get_food() -> Dict[str, Any]:
     """Hole verfügbares Essen aus dem Inventar"""
     try:
-        if not bot.logged_in:
+        if not get_bot().logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        return bot.get_food_data()
+        return get_bot().get_food_data()
     except HTTPException:
         raise
     except Exception as e:
@@ -2043,7 +2261,8 @@ class FoodRequest(BaseModel):
 def eat_food(payload: FoodRequest) -> Dict[str, Any]:
     """Esse ein Essen aus dem Inventar (senkt Promille)"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
         if payload.amount < 1 or payload.amount > 100:
@@ -2051,7 +2270,7 @@ def eat_food(payload: FoodRequest) -> Dict[str, Any]:
                 status_code=400, detail="Amount must be between 1 and 100"
             )
 
-        result = bot.eat_food(
+        result = current_bot.eat_food(
             item_name=payload.item_name,
             item_id=payload.item_id,
             promille=payload.promille,
@@ -2072,13 +2291,14 @@ def eat_food(payload: FoodRequest) -> Dict[str, Any]:
                     emit_promille_changed(result["new_promille"])
                 
                 # Sende Activity-Status (falls sich Counter geändert haben)
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after eating: {e}")
@@ -2098,10 +2318,11 @@ def eat_food(payload: FoodRequest) -> Dict[str, Any]:
 def sober_up() -> Dict[str, Any]:
     """Automatisches Ausnüchtern durch Essen"""
     try:
-        if not bot.logged_in:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
 
-        result = bot.sober_up_with_food(target_promille=0.0)
+        result = current_bot.sober_up_with_food(target_promille=0.0)
 
         if result.get("success"):
             # Invalidiere Cache
@@ -2117,13 +2338,14 @@ def sober_up() -> Dict[str, Any]:
                     emit_promille_changed(result["current_promille"])
                 
                 # Sende Activity-Status
+                current_bot = get_bot()
                 emit_status_changed({
-                    "skill_running": bot.skill_running,
-                    "skill_seconds_remaining": getattr(bot, "skill_seconds_remaining", None),
-                    "fight_running": bot.fight_running,
-                    "fight_seconds_remaining": getattr(bot, "fight_seconds_remaining", None),
-                    "bottles_running": bot.bottles_running,
-                    "bottles_seconds_remaining": getattr(bot, "bottles_seconds_remaining", None),
+                    "skill_running": current_bot.skill_running,
+                    "skill_seconds_remaining": getattr(current_bot, "skill_seconds_remaining", None),
+                    "fight_running": current_bot.fight_running,
+                    "fight_seconds_remaining": getattr(current_bot, "fight_seconds_remaining", None),
+                    "bottles_running": current_bot.bottles_running,
+                    "bottles_seconds_remaining": getattr(current_bot, "bottles_seconds_remaining", None),
                 })
             except Exception as e:
                 logger.warning(f"Failed to emit events after sobering up: {e}")

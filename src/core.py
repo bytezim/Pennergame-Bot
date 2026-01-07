@@ -13,7 +13,7 @@ from .constants import (
     CACHE_TTL_STATUS,
     DEFAULT_USER_AGENT,
 )
-from .db import get_session, init_db
+from .db import get_session
 from .logging_config import get_logger
 from .models import BotActivity, Cookie, Log, Penner, Plunder, Settings
 from .parse import parse_header_counters, parse_overview
@@ -25,7 +25,6 @@ class PennerBot:
     """Main bot class for Pennergame automation."""
 
     def __init__(self) -> None:
-        init_db()
         logger.info("PennerBot initializing...")
 
         user_agent = self._load_user_agent()

@@ -47,7 +47,19 @@ def setup_logging(
     # Root logger configuration
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
-    root_logger.addHandler(console_handler)
+
+    # Avoid adding duplicate console handlers when setup is called multiple times
+    has_stdout_handler = False
+    for h in root_logger.handlers:
+        try:
+            if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stdout:
+                has_stdout_handler = True
+                break
+        except Exception:
+            continue
+
+    if not has_stdout_handler:
+        root_logger.addHandler(console_handler)
 
     # Optional file handler
     if log_file:
@@ -57,7 +69,15 @@ def setup_logging(
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
+
+        # Avoid adding the same file handler multiple times
+        file_path_str = str(log_path)
+        has_same_file_handler = any(
+            isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == file_path_str
+            for h in root_logger.handlers
+        )
+        if not has_same_file_handler:
+            root_logger.addHandler(file_handler)
 
     # Suppress noisy libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)

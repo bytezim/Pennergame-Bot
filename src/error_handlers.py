@@ -93,13 +93,17 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Handle HTTPException from FastAPI."""
-    logger.warning(
-        f"HTTP Exception: {exc.detail}",
-        extra={
-            "status_code": exc.status_code,
-            "path": request.url.path,
-        },
-    )
+    try:
+        logger.warning(
+            f"HTTP Exception: {exc.detail}",
+            extra={
+                "status_code": exc.status_code,
+                "path": request.url.path,
+            },
+        )
+    except Exception:
+        # Fallback if logging fails (e.g., in PyInstaller)
+        pass
 
     return JSONResponse(
         status_code=exc.status_code,

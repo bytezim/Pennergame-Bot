@@ -14,9 +14,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 
 
 def get_data_dir() -> Path:
@@ -49,7 +49,9 @@ engine = create_engine(
         "check_same_thread": False,
         "timeout": 30,  # 30s timeout instead of default 5s
     },
-    poolclass=StaticPool,  # Single connection pool for SQLite
+    poolclass=QueuePool,
+    pool_size=5,
+    max_overflow=10,
     echo=False,  # Set to True for SQL debugging
     pool_pre_ping=True,  # Verify connections before using
 )
@@ -127,6 +129,45 @@ def init_db() -> None:
     """Initialize database tables."""
     # Use checkfirst=True to avoid errors if tables already exist
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    # After creating tables, perform lightweight schema migrations
+    try:
+        _migrate_schema()
+    except Exception:
+        # Migration is best-effort - don't crash startup on failure
+        pass
+
+
+def _migrate_schema() -> None:
+    """Perform small, safe schema migrations for older databases.
+
+    This adds missing nullable DATETIME columns used for scheduler persistence.
+    It is intentionally minimal and uses ALTER TABLE ADD COLUMN which
+    is supported by SQLite and is safe for adding nullable columns.
+    """
+    inspector = inspect(engine)
+    if "bot_config" not in inspector.get_table_names():
+        return
+
+    existing = {c["name"] for c in inspector.get_columns("bot_config")}
+
+    to_add = {
+        "bottles_next_run": "DATETIME",
+        "training_next_run": "DATETIME",
+        "fight_next_run": "DATETIME",
+    }
+
+    # Use a transaction and commit for DDL changes
+    with engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            for name, type_decl in to_add.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE bot_config ADD COLUMN {name} {type_decl}"))
+            transaction.commit()
+        except Exception as e:
+            transaction.rollback()
+            # Don't raise - log to stdout for diagnostics
+            print(f"[db.migrate] Failed to add column(s): {e}")
 
 
 # Register cleanup function to run on application exit

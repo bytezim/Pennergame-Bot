@@ -463,7 +463,7 @@ class SimpleGUI:
         footer_frame.pack_propagate(False)
         
         # Copyright info
-        copyright_label = tk.Label(footer_frame, text="v0.0.1",
+        copyright_label = tk.Label(footer_frame, text="v0.0.3",
                                   fg=self.colors['text_secondary'],
                                   bg=self.colors['bg_secondary'],
                                   font=('Segoe UI', 7))
@@ -476,26 +476,19 @@ class SimpleGUI:
             last_content_len = 0
             while self.running:
                 try:
-                    if self.process_manager.is_pyinstaller_bundle:
-                        # In bundle mode, read from the StringIO capture
-                        if self.process_manager._backend_reader:
-                            current_pos = self.process_manager._backend_reader.tell()
-                            self.process_manager._backend_reader.seek(0)
-                            content = self.process_manager._backend_reader.read()
-                            self.process_manager._backend_reader.seek(current_pos)
-                            
-                            # Get only new content
-                            if len(content) > last_content_len:
-                                new_content = content[last_content_len:]
-                                last_content_len = len(content)
-                                
-                                # Parse and add each new line
-                                for line in new_content.split('\n'):
-                                    if line.strip():
+                    # Development mode: prefer blocking read from subprocess stdout
+                    if not self.process_manager.is_pyinstaller_bundle:
+                        if self.process_manager.is_backend_running():
+                            backend = self.process_manager.backend_process
+                            # Use iterator to block on readline and process lines immediately
+                            if backend and backend.stdout:
+                                for line in iter(backend.stdout.readline, ''):
+                                    if not self.running:
+                                        break
+                                    if line:
                                         level = "INFO"
                                         message = line.strip()
-                                        
-                                        # Try to detect log level from the message
+
                                         if "ERROR" in message or "❌" in message:
                                             level = "ERROR"
                                         elif "WARNING" in message or "⚠️" in message:
@@ -504,33 +497,48 @@ class SimpleGUI:
                                             level = "DEBUG"
                                         elif "[BOT]" in message or "Bot" in message:
                                             level = "BOT"
-                                        
+
                                         self.log_capture.add_log_entry(level, message)
+                                    else:
+                                        # EOF reached
+                                        break
+                        else:
+                            # Backend not running: short sleep to avoid busy-loop
+                            time.sleep(0.1)
+
                     else:
-                        # Development mode: read from subprocess
-                        if self.process_manager.is_backend_running():
-                            backend = self.process_manager.backend_process
-                            if backend and backend.stdout:
-                                line = backend.stdout.readline()
-                                if line:
-                                    # Parse log line to extract level and message
-                                    level = "INFO"
-                                    message = line.strip()
-                                    
-                                    # Try to detect log level from the message
-                                    if "ERROR" in message or "❌" in message:
-                                        level = "ERROR"
-                                    elif "WARNING" in message or "⚠️" in message:
-                                        level = "WARNING"
-                                    elif "DEBUG" in message:
-                                        level = "DEBUG"
-                                    elif "[BOT]" in message or "Bot" in message:
-                                        level = "BOT"
-                                    
-                                    self.log_capture.add_log_entry(level, message)
-                    
-                    time.sleep(0.5)  # Check for new logs every 500ms
-                    
+                        # Bundle mode: poll the StringIO capture more frequently
+                        if self.process_manager._backend_reader:
+                            current_pos = self.process_manager._backend_reader.tell()
+                            self.process_manager._backend_reader.seek(0)
+                            content = self.process_manager._backend_reader.read()
+                            self.process_manager._backend_reader.seek(current_pos)
+
+                            # Get only new content
+                            if len(content) > last_content_len:
+                                new_content = content[last_content_len:]
+                                last_content_len = len(content)
+
+                                # Parse and add each new line
+                                for line in new_content.split('\n'):
+                                    if line.strip():
+                                        level = "INFO"
+                                        message = line.strip()
+
+                                        if "ERROR" in message or "❌" in message:
+                                            level = "ERROR"
+                                        elif "WARNING" in message or "⚠️" in message:
+                                            level = "WARNING"
+                                        elif "DEBUG" in message:
+                                            level = "DEBUG"
+                                        elif "[BOT]" in message or "Bot" in message:
+                                            level = "BOT"
+
+                                        self.log_capture.add_log_entry(level, message)
+
+                        # Poll more frequently in bundle mode
+                        time.sleep(0.1)
+
                 except Exception as e:
                     # Log errors to GUI
                     error_msg = f"Error reading logs: {e}"

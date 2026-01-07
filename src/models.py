@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -8,8 +8,9 @@ from .db import Base
 
 class Log(Base):
     __tablename__ = "logs"
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now)
+    timestamp = Column(DateTime, default=datetime.now, index=True)
     message = Column(String)
 
 
@@ -81,8 +82,9 @@ class BottlePrice(Base):
     """Speichert die Historie der Pfandflaschenpreise (letzte 24h)"""
 
     __tablename__ = "bottle_prices"
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     price_cents = Column(Integer, nullable=False)  # Preis in Cent (z.B. 21, 24, etc.)
 
 
@@ -90,8 +92,9 @@ class MoneyHistory(Base):
     """Speichert die Historie des Geldbetrags (letzte 24h)"""
 
     __tablename__ = "money_history"
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     amount = Column(Float, nullable=False)  # Geldbetrag in Euro (z.B. 428200.98)
 
 
@@ -99,8 +102,9 @@ class RankHistory(Base):
     """Speichert die Historie des Rangs (letzte 24h)"""
 
     __tablename__ = "rank_history"
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     rank = Column(Integer, nullable=False)  # Rang (z.B. 42, 100, etc.)
 
 
@@ -108,8 +112,9 @@ class PointsHistory(Base):
     """Speichert die Historie der Punkte (letzte 24h)"""
 
     __tablename__ = "points_history"
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     points = Column(Integer, nullable=False)  # Punkte (z.B. 15000, 20000, etc.)
 
 
@@ -181,3 +186,8 @@ class BotConfig(Base):
     training_target_promille = Column(
         Float, default=2.5, nullable=False
     )  # Ziel-Promillewert (2.0-3.0)
+
+    # Nächste geplante Ausführungszeiten für Tasks (für Scheduler Persistence)
+    bottles_next_run = Column(DateTime, nullable=True)
+    training_next_run = Column(DateTime, nullable=True)
+    fight_next_run = Column(DateTime, nullable=True)

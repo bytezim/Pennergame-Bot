@@ -462,7 +462,7 @@ function Install-BuildTools {
     }
     
     Write-ColoredOutput "Installing PyInstaller..." "Yellow"
-    & $VENV_PYTHON -m pip install pyinstaller
+    & $VENV_PYTHON -m pip install pyinstaller pyinstaller-hooks-contrib
     
     if ($LASTEXITCODE -eq 0) {
         Write-ColoredOutput "✓ PyInstaller installed successfully!" "Green"

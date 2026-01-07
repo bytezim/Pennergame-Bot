@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.3] - 2026-01-07
+
+### Added
+- manage.sh: Added Linux/Mac management script for PyInstaller builds
+- pyproject.toml: Added PyInstaller and pyinstaller-hooks-contrib as dev dependencies
+
+### Changed
+- manage.ps1: Updated to install pyinstaller-hooks-contrib for better hook support
+- pennerbot.spec: Added hidden imports for jaraco modules, excluded pkg_resources/jaraco to fix runtime errors
+- gui_launcher.py: Improved GUI launcher functionality
+- server.py: Enhanced server implementation
+
 ## [0.0.2] - 2026-01-06
 
 ### Added
@@ -66,6 +78,7 @@
 
 ## Version History
 
+- **[0.0.3]** - 2026-01-07: Added manage.sh script, PyInstaller improvements with pyinstaller-hooks-contrib, fixed runtime errors
 - **[0.0.2]** - 2026-01-06: Minor updates and improvements, added GUI launcher, removed Makefile
 - **[0.0.1]** - 2026-01-03: Initial release with full automation features
 

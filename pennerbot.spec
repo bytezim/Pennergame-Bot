@@ -17,6 +17,9 @@ datas = [
 
 # Collect all hidden imports (modules loaded dynamically)
 hiddenimports = [
+    # pkg_resources/jaraco fix
+    'jaraco',
+    'jaraco.text',
     # Uvicorn (minimal)
     'uvicorn.logging',
     'uvicorn.loops.auto',
@@ -52,7 +55,9 @@ hiddenimports = [
     # Scheduler
     'apscheduler.schedulers.asyncio',
     # GUI components
+    'tkinter',
     'tkinter.ttk',
+    'tkinter.scrolledtext',
     'pystray',
     'PIL.Image',
     'PIL.ImageDraw',
@@ -93,11 +98,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=excludes,  # Now excluding unnecessary modules
+    excludes=excludes + ['pkg_resources', 'jaraco'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=True,  # Better compression
+    noarchive=True,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)

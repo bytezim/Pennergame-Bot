@@ -32,6 +32,8 @@ dev = [
   "pre-commit==4.0.1",
   "autoflake==2.3.1",
   "bandit==1.7.10",
+  "pyinstaller==6.11.0",
+  "pyinstaller-hooks-contrib==2025.1",
 ]
 
 [project.urls]
