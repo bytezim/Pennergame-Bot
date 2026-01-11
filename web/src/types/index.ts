@@ -32,6 +32,9 @@ export interface Penner {
   rank_trend?: string;
   points_trend?: string;
   money_trend?: string;
+  // City information
+  city?: string;
+  city_url?: string;
 }
 
 export interface Log {

@@ -33,12 +33,12 @@ function App() {
     let pollingInterval: number | null = null;
     let reconnectTimeout: number | null = null;
     let reconnectAttempts = 0;
-    const maxReconnectAttempts = 3;
+    const maxReconnectAttempts = 10; // Increased from 3 to 10 for better resilience
 
     const connectSSE = () => {
-      // Nach 3 fehlgeschlagenen Versuchen auf Polling umsteigen
+      // Nach 10 fehlgeschlagenen Versuchen auf Polling umsteigen
       if (reconnectAttempts >= maxReconnectAttempts) {
-        console.warn('⚠️ SSE failed after 3 attempts, using polling mode');
+        console.warn('⚠️ SSE failed after 10 attempts, using polling mode');
         if (!pollingInterval) {
           pollingInterval = setInterval(fetchData, 30000) as unknown as number;
           fetchData();
@@ -77,11 +77,12 @@ function App() {
           eventSource = null;
           reconnectAttempts++;
           
-          // Versuche Reconnect nach kurzer Pause
+          // Versuche Reconnect nach kurzer Pause (exponential backoff, max 30s)
+          const delay = Math.min(2000 * reconnectAttempts, 30000);
           if (reconnectAttempts < maxReconnectAttempts) {
             reconnectTimeout = setTimeout(() => {
               connectSSE();
-            }, 2000 * reconnectAttempts) as unknown as number; // Exponential backoff
+            }, delay) as unknown as number;
           } else {
             // Fallback auf Polling
             console.warn('SSE connection failed, switching to polling fallback');
@@ -265,7 +266,10 @@ function App() {
 
   const handleLoginSuccess = useCallback((showToast: boolean = true) => {
     setIsAuthenticated(true);
-    fetchData(); // Lade Daten sofort nach Login
+    // Lade Daten sofort nach Login, aber nicht blockieren
+    fetchData().catch(error => {
+      console.warn('Initial data fetch failed after login:', error);
+    });
     if (showToast) {
       toast({
         title: "Anmeldung erfolgreich",

@@ -123,6 +123,8 @@ PennerBot/
 - Im gleichen Ordner wie `PennerBot.exe`
 - Datei: `pennergame.db`
 
+**Release note (0.0.4):** The build embeds runtime defaults from `src/constants.py` so a fresh install will enable bottles, autosell and autodrink by default. See [CHANGELOG.md](CHANGELOG.md).
+
 ### Verteilung:
 Die EXE kann eigenständig verteilt werden:
 - ✅ Keine Python-Installation nötig

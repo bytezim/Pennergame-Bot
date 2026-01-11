@@ -463,7 +463,7 @@ class SimpleGUI:
         footer_frame.pack_propagate(False)
         
         # Copyright info
-        copyright_label = tk.Label(footer_frame, text="v0.0.3",
+        copyright_label = tk.Label(footer_frame, text="v0.0.4",
                                   fg=self.colors['text_secondary'],
                                   bg=self.colors['bg_secondary'],
                                   font=('Segoe UI', 7))

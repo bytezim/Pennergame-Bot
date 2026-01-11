@@ -9,7 +9,10 @@ jobstores = {
     'default': SQLAlchemyJobStore(url=DB_URL)
 }
 
-executors = {"default": ThreadPoolExecutor(1)}
+executors = {
+    "bottles": ThreadPoolExecutor(1),
+    "training": ThreadPoolExecutor(1),
+}
 
 scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors)
 

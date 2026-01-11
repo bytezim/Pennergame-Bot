@@ -53,8 +53,8 @@ class PerformanceMonitor:
         m["min_time"] = min(m["min_time"], duration)
         m["max_time"] = max(m["max_time"], duration)
 
-        # Log slow requests (>1s)
-        if duration > 1.0:
+        # Log slow requests (>3s) - network requests to pennergame.de can be slow
+        if duration > 5.0:
             logger.warning(f"Slow request: {endpoint} took {duration:.2f}s")
 
     def record_cache_hit(self):

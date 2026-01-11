@@ -19,6 +19,8 @@
 
 **🎯 Automatisierung für Pennergame.de - Browser-Bot mit Desktop-Interface**
 
+**Current version:** 0.0.4 — defaults updated (bottles/autosell/autodrink/training)
+
 </div>
 
 ---

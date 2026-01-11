@@ -961,8 +961,6 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
   };
 
   const timeOptions = [
-    { value: 10, label: "10 Minuten" },
-    { value: 30, label: "30 Minuten" },
     { value: 60, label: "1 Stunde" },
     { value: 180, label: "3 Stunden" },
     { value: 360, label: "6 Stunden" },

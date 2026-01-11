@@ -11,11 +11,15 @@ interface StatCardProps {
 export const StatCard = ({ label, value, icon, trend }: StatCardProps) => {
   // Dynamische Farbe basierend auf Trend-Wert
   const getTrendColor = (trendValue: string): string => {
-    if (trendValue.includes("+") || trendValue.startsWith("€+")) {
+    if (!trendValue) return "teal.400";
+    
+    const cleanValue = trendValue.replace(/[^\d+\-]/g, '');
+    
+    if (cleanValue.includes("+") || trendValue.startsWith("€+")) {
       return "green.400";
-    } else if (trendValue.includes("-") || trendValue.startsWith("€-")) {
+    } else if (cleanValue.includes("-") || trendValue.startsWith("€-")) {
       return "red.400";
-    } else if (trendValue.includes("±0")) {
+    } else if (trendValue.includes("±0") || trendValue.includes("(24h)")) {
       return "gray.400";
     }
     return "teal.400"; // Fallback
@@ -35,6 +39,10 @@ export const StatCard = ({ label, value, icon, trend }: StatCardProps) => {
         boxShadow: "0 8px 20px rgba(56, 178, 172, 0.3)",
         borderColor: "teal.400",
       }}
+      minH="120px"
+      display="flex"
+      flexDirection="column"
+      justifyContent="space-between"
     >
       <Stat>
         <HStack justify="space-between" mb={2}>
@@ -47,7 +55,14 @@ export const StatCard = ({ label, value, icon, trend }: StatCardProps) => {
           {value ?? "—"}
         </StatNumber>
         {trend && (
-          <StatHelpText fontSize="xs" color={getTrendColor(trend)} mb={0} fontWeight="semibold">
+          <StatHelpText
+            fontSize="xs"
+            color={getTrendColor(trend)}
+            mb={0}
+            fontWeight="semibold"
+            mt="auto"
+            textTransform="none"
+          >
             {trend}
           </StatHelpText>
         )}

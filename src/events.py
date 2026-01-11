@@ -17,6 +17,8 @@ class EventType:
     STATUS_CHANGED = "status_changed"
     ACTIVITY_STARTED = "activity_started"
     ACTIVITY_COMPLETED = "activity_completed"
+    ACTIVITY_FAILED = "activity_failed"
+    ACTIVITY_QUEUED = "activity_queued"
     PENNER_DATA_UPDATED = "penner_data_updated"
     BOT_STATE_CHANGED = "bot_state_changed"
     LOG_ADDED = "log_added"
@@ -162,9 +164,25 @@ def emit_activity_started(activity_name: str, duration_seconds: int):
     )
 
 
-def emit_activity_completed(activity_name: str):
+def emit_activity_completed(activity_name: str, activity_data: Dict[str, Any] = None):
     """Emit wenn Activity abgeschlossen ist"""
-    event_bus.emit(EventType.ACTIVITY_COMPLETED, {"activity": activity_name})
+    event_bus.emit(
+        EventType.ACTIVITY_COMPLETED,
+        {"activity": activity_name, "details": activity_data}
+    )
+
+
+def emit_activity_failed(activity_name: str, activity_data: Dict[str, Any] = None, error: str = None):
+    """Emit wenn Activity fehlgeschlagen ist"""
+    event_bus.emit(
+        EventType.ACTIVITY_FAILED,
+        {"activity": activity_name, "details": activity_data, "error": error}
+    )
+
+
+def emit_activity_queued(activity_data: Dict[str, Any]):
+    """Emit wenn Activity in Queue eingereiht wurde"""
+    event_bus.emit(EventType.ACTIVITY_QUEUED, {"activity": activity_data})
 
 
 def emit_penner_data_updated(penner_data: Dict[str, Any]):

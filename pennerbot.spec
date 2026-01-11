@@ -1,8 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec file for PennerBot
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 import os
+import tkinter
 
 block_cipher = None
 
@@ -13,7 +14,7 @@ datas = [
     ('server.py', '.'),  # Server module (needed for direct import in bundle mode)
     ('gui_launcher.py', '.'),  # GUI launcher module
     ('web/serve.py', 'web'),  # Web server module
-]
+] + collect_data_files('tkinter')
 
 # Collect all hidden imports (modules loaded dynamically)
 hiddenimports = [
@@ -92,7 +93,7 @@ excludes = [
 a = Analysis(
     ['gui_launcher.py'],
     pathex=[],
-    binaries=[],
+    binaries=collect_dynamic_libs('tkinter'),
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

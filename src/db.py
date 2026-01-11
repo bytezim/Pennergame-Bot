@@ -18,6 +18,8 @@ from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import QueuePool
 
+from .constants import DB_PATH
+
 
 def get_data_dir() -> Path:
     """Get the data directory for storing database.
@@ -35,7 +37,6 @@ def get_data_dir() -> Path:
 
 # Get data directory for database
 DATA_DIR = get_data_dir()
-DB_PATH = DATA_DIR / "data.db"
 
 # SQLite optimization: Use WAL mode for better concurrency
 DB_URL = f"sqlite:///{DB_PATH}"
@@ -145,29 +146,49 @@ def _migrate_schema() -> None:
     is supported by SQLite and is safe for adding nullable columns.
     """
     inspector = inspect(engine)
-    if "bot_config" not in inspector.get_table_names():
-        return
 
-    existing = {c["name"] for c in inspector.get_columns("bot_config")}
+    # Migrate bot_config table
+    if "bot_config" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("bot_config")}
 
-    to_add = {
-        "bottles_next_run": "DATETIME",
-        "training_next_run": "DATETIME",
-        "fight_next_run": "DATETIME",
-    }
+        to_add = {
+            "bottles_next_run": "DATETIME",
+            "training_next_run": "DATETIME",
+            "fight_next_run": "DATETIME",
+        }
 
-    # Use a transaction and commit for DDL changes
-    with engine.connect() as conn:
-        transaction = conn.begin()
-        try:
-            for name, type_decl in to_add.items():
-                if name not in existing:
-                    conn.execute(text(f"ALTER TABLE bot_config ADD COLUMN {name} {type_decl}"))
-            transaction.commit()
-        except Exception as e:
-            transaction.rollback()
-            # Don't raise - log to stdout for diagnostics
-            print(f"[db.migrate] Failed to add column(s): {e}")
+        # Use a transaction and commit for DDL changes
+        with engine.connect() as conn:
+            transaction = conn.begin()
+            try:
+                for name, type_decl in to_add.items():
+                    if name not in existing:
+                        conn.execute(text(f"ALTER TABLE bot_config ADD COLUMN {name} {type_decl}"))
+                transaction.commit()
+            except Exception as e:
+                transaction.rollback()
+                # Don't raise - log to stdout for diagnostics
+                print(f"[db.migrate] Failed to add column(s) to bot_config: {e}")
+
+    # Migrate bot_activities table
+    if "bot_activities" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("bot_activities")}
+
+        to_add = {
+            "was_interrupted": "BOOLEAN DEFAULT 0",
+        }
+
+        with engine.connect() as conn:
+            transaction = conn.begin()
+            try:
+                for name, type_decl in to_add.items():
+                    if name not in existing:
+                        conn.execute(text(f"ALTER TABLE bot_activities ADD COLUMN {name} {type_decl}"))
+                transaction.commit()
+            except Exception as e:
+                transaction.rollback()
+                # Don't raise - log to stdout for diagnostics
+                print(f"[db.migrate] Failed to add column(s) to bot_activities: {e}")
 
 
 # Register cleanup function to run on application exit

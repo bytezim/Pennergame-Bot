@@ -1,6 +1,6 @@
 [project]
 name = "pennerbot"
-version = "0.0.2"
+version = "0.0.4"
 description = "An automated bot and dashboard for Pennergame with improved architecture"
 authors = [
   { name = "PennerBot Team" }

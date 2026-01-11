@@ -9,20 +9,20 @@ from .models import Settings
 
 def search_bottles(bot, time_minutes: int = 10):
     from .parse import parse_activities, parse_header_counters
+    from .constants import VALID_BOTTLE_DURATIONS, DEFAULT_BOTTLE_DURATION
 
     try:
-        bot.log(f"🍾 Starte Pfandflaschen sammeln ({time_minutes} Minuten)...")
+        bot.log(f"Starte Pfandflaschen sammeln ({time_minutes} Minuten)...")
 
-        valid_times = [10, 30, 60, 180, 360, 540, 720]
-        if time_minutes not in valid_times:
-            bot.log(f"⚠️ Ungültige Zeit: {time_minutes}. Nutze 10 Minuten.")
-            time_minutes = 10
+        if time_minutes not in VALID_BOTTLE_DURATIONS:
+            bot.log(f"Ungültige Zeit: {time_minutes}. Nutze {DEFAULT_BOTTLE_DURATION} Minuten.")
+            time_minutes = DEFAULT_BOTTLE_DURATION
 
         activities = bot.get_activities_data(use_cache=True)
         bottles_status = activities.get("bottles", {})
 
         if bottles_status.get("pending"):
-            bot.log("🛒 Einkaufswagen muss erst ausgeleert werden...")
+            bot.log("Einkaufswagen muss erst ausgeleert werden...")
 
             response = bot.api_post(
                 bot.client,
@@ -39,9 +39,9 @@ def search_bottles(bot, time_minutes: int = 10):
 
             found_item = bottles_after.get("last_found")
             if found_item:
-                bot.log(f"✨ Gefunden: {found_item}")
+                bot.log(f"Gefunden: {found_item}")
 
-            bot.log("✅ Einkaufswagen ausgeleert")
+            bot.log("Einkaufswagen ausgeleert")
 
             # Cache intelligent invalidieren - nur Activities
             bot._activities_cache = None
@@ -53,7 +53,7 @@ def search_bottles(bot, time_minutes: int = 10):
             data={"sammeln": str(time_minutes), "konzentrieren": "1"},
         )
 
-        bot.log(f"✅ Pfandflaschen sammeln gestartet ({time_minutes} Minuten)")
+        bot.log(f"Pfandflaschen sammeln gestartet ({time_minutes} Minuten)")
 
         activities_new = parse_activities(response.text)
         bot._activities_cache = activities_new
@@ -64,7 +64,7 @@ def search_bottles(bot, time_minutes: int = 10):
             bot._update_activity_status(counters)
             bot._status_cache_time = datetime.now()
         except Exception as e:
-            bot.log(f"⚠️ Could not parse counters from response: {e}")
+            bot.log(f"Could not parse counters from response: {e}")
 
         return {
             "success": True,
@@ -73,7 +73,7 @@ def search_bottles(bot, time_minutes: int = 10):
         }
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Pfandflaschen sammeln: {e}"
+        error_msg = f"Fehler beim Pfandflaschen sammeln: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -89,7 +89,7 @@ def get_bottles_status(bot, force_refresh: bool = False):
             "overview": activities.get("overview", {}),
         }
     except Exception as e:
-        bot.log(f"❌ Fehler beim Abrufen des Status: {e}")
+        bot.log(f"Fehler beim Abrufen des Status: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -97,7 +97,7 @@ def cancel_bottle_collecting(bot):
     from .parse import parse_activities, parse_header_counters
 
     try:
-        bot.log("🛑 Breche Pfandflaschensammeln ab...")
+        bot.log("Breche Pfandflaschensammeln ab...")
 
         response = bot.api_post(
             bot.client,
@@ -118,20 +118,20 @@ def cancel_bottle_collecting(bot):
             bot._update_activity_status(counters)
             bot._status_cache_time = datetime.now()
         except Exception as e:
-            bot.log(f"⚠️ Could not parse counters from response: {e}")
+            bot.log(f"Could not parse counters from response: {e}")
 
         if not bottles_status.get("collecting"):
-            bot.log("✅ Pfandflaschensammeln abgebrochen")
+            bot.log("Pfandflaschensammeln abgebrochen")
             return {"success": True, "message": "Pfandflaschensammeln abgebrochen"}
         else:
-            bot.log("⚠️ Abbruch möglicherweise fehlgeschlagen")
+            bot.log("Abbruch möglicherweise fehlgeschlagen")
             return {
                 "success": False,
                 "message": "Abbruch fehlgeschlagen - Status noch aktiv",
             }
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Abbrechen: {e}"
+        error_msg = f"Fehler beim Abbrechen: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -143,12 +143,12 @@ def start_concentration(bot, mode: str = "none"):
         mode_map = {"none": "1", "fight": "2", "bottles": "3"}
 
         if mode not in mode_map:
-            bot.log(f"⚠️ Ungültiger Modus: {mode}. Nutze 'none'.")
+            bot.log(f"Ungültiger Modus: {mode}. Nutze 'none'.")
             mode = "none"
 
         konzentrieren_value = mode_map[mode]
 
-        bot.log(f"🧠 Starte Konzentrationsmodus (Nebenbeschäftigung: {mode})...")
+        bot.log(f"Starte Konzentrationsmodus (Nebenbeschäftigung: {mode})...")
 
         response = bot.api_post(
             bot.client,
@@ -160,7 +160,7 @@ def start_concentration(bot, mode: str = "none"):
             "Du bist konzentriert" in response.text
             or "konzentrierst dich gerade" in response.text
         ):
-            bot.log("✅ Konzentrationsmodus gestartet")
+            bot.log("Konzentrationsmodus gestartet")
 
             # OPTIMIERUNG: Parse Response direkt
             activities = parse_activities(response.text)
@@ -172,7 +172,7 @@ def start_concentration(bot, mode: str = "none"):
                 bot._update_activity_status(counters)
                 bot._status_cache_time = datetime.now()
             except Exception as e:
-                bot.log(f"⚠️ Could not parse counters: {e}")
+                bot.log(f"Could not parse counters: {e}")
 
             mode_names = {
                 "none": "Keine",
@@ -185,14 +185,14 @@ def start_concentration(bot, mode: str = "none"):
                 "message": f"Konzentrationsmodus gestartet (Nebenbeschäftigung: {mode_names[mode]})",
             }
         else:
-            bot.log("⚠️ Konzentrationsmodus konnte nicht gestartet werden")
+            bot.log("Konzentrationsmodus konnte nicht gestartet werden")
             return {
                 "success": False,
                 "message": "Konzentrationsmodus konnte nicht gestartet werden",
             }
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Starten des Konzentrationsmodus: {e}"
+        error_msg = f"Fehler beim Starten des Konzentrationsmodus: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -201,7 +201,7 @@ def stop_concentration(bot):
     from .parse import parse_activities, parse_header_counters
 
     try:
-        bot.log("🛑 Beende Konzentrationsmodus...")
+        bot.log("Beende Konzentrationsmodus...")
 
         with get_session() as s:
             username_setting = s.query(Settings).filter_by(key="username").first()
@@ -227,20 +227,20 @@ def stop_concentration(bot):
             bot._update_activity_status(counters)
             bot._status_cache_time = datetime.now()
         except Exception as e:
-            bot.log(f"⚠️ Could not parse counters: {e}")
+            bot.log(f"Could not parse counters: {e}")
 
         if not concentration_status.get("active", False):
-            bot.log("✅ Konzentrationsmodus beendet")
+            bot.log("Konzentrationsmodus beendet")
             return {"success": True, "message": "Konzentrationsmodus beendet"}
         else:
-            bot.log("⚠️ Konzentrationsmodus konnte nicht beendet werden")
+            bot.log("Konzentrationsmodus konnte nicht beendet werden")
             return {
                 "success": False,
                 "message": "Konzentrationsmodus konnte nicht beendet werden",
             }
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Beenden des Konzentrationsmodus: {e}"
+        error_msg = f"Fehler beim Beenden des Konzentrationsmodus: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -252,16 +252,17 @@ def get_concentration_status(bot, force_refresh: bool = False):
 
         return {"success": True, "concentration": activities.get("concentration", {})}
     except Exception as e:
-        bot.log(f"❌ Fehler beim Abrufen des Konzentrationsstatus: {e}")
+        bot.log(f"Fehler beim Abrufen des Konzentrationsstatus: {e}")
         return {"success": False, "error": str(e)}
 
 
 def sell_bottles(bot, amount: int):
     """Pfandflaschen verkaufen"""
     from .parse import parse_header_counters
+    from .constants import MIN_BOTTLE_PRICE_CENTS, MAX_BOTTLE_PRICE_CENTS
 
     try:
-        bot.log(f"💰 Verkaufe {amount} Pfandflaschen...")
+        bot.log(f"Verkaufe {amount} Pfandflaschen...")
 
         # OPTIMIERUNG: Nutze gecachte Activities statt neuem Request!
         # /stock/bottle/ ist teuer, nutze Cache wenn vorhanden
@@ -280,11 +281,16 @@ def sell_bottles(bot, amount: int):
         max_input = soup.find("input", {"name": "max"})
 
         if not chkval_input or not max_input:
-            bot.log("❌ Konnte Pfandflaschen-Daten nicht finden")
+            bot.log("Konnte Pfandflaschen-Daten nicht finden")
             return {"success": False, "message": "Pfandflaschen-Daten nicht gefunden"}
 
         current_price = int(chkval_input.get("value", 0))
         max_bottles = int(max_input.get("value", 0))
+
+        # Validiere Preisbereich
+        if current_price < MIN_BOTTLE_PRICE_CENTS or current_price > MAX_BOTTLE_PRICE_CENTS:
+            bot.log(f"Ungültiger Flaschenpreis: {current_price} Cent")
+            return {"success": False, "message": f"Ungültiger Preis: {current_price} Cent"}
 
         # OPTIMIERUNG: Parse Header Counter aus GET Response
         try:
@@ -292,14 +298,14 @@ def sell_bottles(bot, amount: int):
             bot._update_activity_status(counters)
             bot._status_cache_time = datetime.now()
         except Exception as e:
-            bot.log(f"⚠️ Could not parse counters from GET: {e}")
+            bot.log(f"Could not parse counters from GET: {e}")
 
         if amount > max_bottles:
-            bot.log(f"⚠️ Nur {max_bottles} Flaschen verfügbar, verkaufe alle")
+            bot.log(f"Nur {max_bottles} Flaschen verfügbar, verkaufe alle")
             amount = max_bottles
 
         if amount <= 0:
-            bot.log("❌ Keine Flaschen zum Verkaufen")
+            bot.log("Keine Flaschen zum Verkaufen")
             return {"success": False, "message": "Keine Flaschen verfügbar"}
 
         # Verkaufe Flaschen
@@ -324,7 +330,7 @@ def sell_bottles(bot, amount: int):
             earned_match = re.search(r"für €([\d,\.]+)", message_text)
             earned = earned_match.group(1) if earned_match else "0"
 
-            bot.log(f"✅ {amount} Flaschen für €{earned} verkauft")
+            bot.log(f"{amount} Flaschen für €{earned} verkauft")
 
             # OPTIMIERUNG: Parse Header Counter aus POST Response
             try:
@@ -336,7 +342,7 @@ def sell_bottles(bot, amount: int):
                 bot._save_money(sell_response.text)
                 bot._save_bottle_price(sell_response.text)
             except Exception as e:
-                bot.log(f"⚠️ Could not parse counters from POST: {e}")
+                bot.log(f"Could not parse counters from POST: {e}")
 
             # Cache intelligent invalidieren
             bot._activities_cache = None
@@ -351,11 +357,11 @@ def sell_bottles(bot, amount: int):
                 "current_price": current_price,
             }
         else:
-            bot.log("⚠️ Verkauf möglicherweise fehlgeschlagen")
+            bot.log("Verkauf möglicherweise fehlgeschlagen")
             return {"success": False, "message": "Keine Bestätigung erhalten"}
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Verkaufen der Flaschen: {e}"
+        error_msg = f"Fehler beim Verkaufen der Flaschen: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -365,7 +371,7 @@ def empty_bottle_cart(bot):
     from .parse import parse_activities, parse_header_counters
 
     try:
-        bot.log("🛒 Leere Einkaufswagen...")
+        bot.log("Leere Einkaufswagen...")
 
         response = bot.api_post(
             bot.client,
@@ -389,7 +395,7 @@ def empty_bottle_cart(bot):
             bot._update_activity_status(counters)
             bot._status_cache_time = datetime.now()
         except Exception as e:
-            bot.log(f"⚠️ Could not parse counters: {e}")
+            bot.log(f"Could not parse counters: {e}")
 
         bottles_status = activities.get("bottles", {})
         found_item = bottles_status.get("last_found")
@@ -397,9 +403,9 @@ def empty_bottle_cart(bot):
         message = "Einkaufswagen ausgeleert"
         if found_item:
             message += f" - Gefunden: {found_item}"
-            bot.log(f"✨ Gefunden: {found_item}")
+            bot.log(f"Gefunden: {found_item}")
 
-        bot.log("✅ " + message)
+        bot.log("" + message)
 
         # Trigger Auto-Sell Check da neue Flaschen hinzugekommen sind
         try:
@@ -413,7 +419,7 @@ def empty_bottle_cart(bot):
                 if last_price:
                     bot._trigger_auto_sell_check(last_price.price_cents)
         except Exception as e:
-            bot.log(f"⚠️ Auto-sell check after cart empty failed: {e}")
+            bot.log(f"Auto-sell check after cart empty failed: {e}")
 
         return {
             "success": True,
@@ -423,7 +429,7 @@ def empty_bottle_cart(bot):
         }
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Ausleeren des Einkaufswagens: {e}"
+        error_msg = f"Fehler beim Ausleeren des Einkaufswagens: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -434,6 +440,7 @@ def get_bottles_inventory(bot):
     OPTIMIERUNG: Diese Funktion sollte vermieden werden - nutze stattdessen sell_bottles() Response
     """
     from .parse import parse_header_counters
+    from .constants import MIN_BOTTLE_PRICE_CENTS, MAX_BOTTLE_PRICE_CENTS
 
     try:
         # Prüfe ob wir erst kürzlich /stock/bottle/ geholt haben
@@ -453,6 +460,11 @@ def get_bottles_inventory(bot):
         current_price = int(chkval_input.get("value", 0))
         bottle_count = int(max_input.get("value", 0))
 
+        # Validiere Preisbereich
+        if current_price < MIN_BOTTLE_PRICE_CENTS or current_price > MAX_BOTTLE_PRICE_CENTS:
+            bot.log(f"Ungültiger Flaschenpreis: {current_price} Cent")
+            return {"success": False, "message": f"Ungültiger Preis: {current_price} Cent"}
+
         # OPTIMIERUNG: Parse Header Counter aus Response
         try:
             counters = parse_header_counters(response.text)
@@ -463,7 +475,7 @@ def get_bottles_inventory(bot):
             bot._save_money(response.text)
             bot._save_bottle_price(response.text)
         except Exception as e:
-            bot.log(f"⚠️ Could not parse counters: {e}")
+            bot.log(f"Could not parse counters: {e}")
 
         # Parse Display-Text für Anzahl
         bottle_text = None
@@ -482,7 +494,7 @@ def get_bottles_inventory(bot):
         }
 
     except Exception as e:
-        bot.log(f"❌ Fehler beim Abrufen des Inventars: {e}")
+        bot.log(f"Fehler beim Abrufen des Inventars: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -498,11 +510,12 @@ def start_training(bot, skill_type: str):
         dict: {"success": bool, "message": str, "skill_type": str}
     """
     from .parse import parse_header_counters
+    from .constants import VALID_TRAINING_SKILLS
 
     try:
         # Validierung
-        if skill_type not in ["att", "def", "agi"]:
-            error_msg = f"⚠️ Ungültiger Skill-Typ: {skill_type}"
+        if skill_type not in VALID_TRAINING_SKILLS:
+            error_msg = f"Ungültiger Skill-Typ: {skill_type}"
             bot.log(error_msg)
             return {"success": False, "message": error_msg}
 
@@ -512,14 +525,14 @@ def start_training(bot, skill_type: str):
             "agi": "Geschicklichkeit",
         }
 
-        bot.log(f"🎓 Starte Weiterbildung: {skill_names[skill_type]}...")
+        bot.log(f"Starte Weiterbildung: {skill_names[skill_type]}...")
 
         # Prüfe ob bereits eine Weiterbildung läuft
         skills_data = bot.get_skills_data()
         if skills_data.get("running_skill"):
             running = skills_data["running_skill"]
             bot.log(
-                f"⚠️ Weiterbildung läuft bereits: {running.get('name', 'Unbekannt')}"
+                f"Weiterbildung läuft bereits: {running.get('name', 'Unbekannt')}"
             )
             return {
                 "success": False,
@@ -532,7 +545,7 @@ def start_training(bot, skill_type: str):
         if response.status_code == 200:
             # Parse Response um zu prüfen ob erfolgreich
             if "Es läuft bereits eine Weiterbildung" in response.text:
-                bot.log(f"✅ Weiterbildung {skill_names[skill_type]} gestartet")
+                bot.log(f"Weiterbildung {skill_names[skill_type]} gestartet")
 
                 # OPTIMIERUNG: Parse Counter aus Response
                 try:
@@ -540,7 +553,7 @@ def start_training(bot, skill_type: str):
                     bot._update_activity_status(counters)
                     bot._status_cache_time = datetime.now()
                 except Exception as e:
-                    bot.log(f"⚠️ Could not parse counters: {e}")
+                    bot.log(f"Could not parse counters: {e}")
 
                 return {
                     "success": True,
@@ -548,7 +561,7 @@ def start_training(bot, skill_type: str):
                     "skill_type": skill_type,
                 }
             else:
-                bot.log("⚠️ Weiterbildung konnte nicht gestartet werden")
+                bot.log("Weiterbildung konnte nicht gestartet werden")
                 return {
                     "success": False,
                     "message": "Weiterbildung konnte nicht gestartet werden",
@@ -557,7 +570,7 @@ def start_training(bot, skill_type: str):
             return {"success": False, "message": f"HTTP {response.status_code}"}
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Starten der Weiterbildung: {e}"
+        error_msg = f"Fehler beim Starten der Weiterbildung: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -582,7 +595,7 @@ def get_training_status(bot, force_refresh: bool = False):
             "available_skills": skills_data.get("available_skills", {}),
         }
     except Exception as e:
-        bot.log(f"❌ Fehler beim Abrufen des Weiterbildungs-Status: {e}")
+        bot.log(f"Fehler beim Abrufen des Weiterbildungs-Status: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -599,12 +612,12 @@ def cancel_training(bot):
     from .parse import parse_header_counters
 
     try:
-        bot.log("🛑 Breche Weiterbildung ab...")
+        bot.log("Breche Weiterbildung ab...")
 
         # Prüfe ob überhaupt eine Weiterbildung läuft
         skills_data = bot.get_skills_data()
         if not skills_data.get("running_skill"):
-            bot.log("⚠️ Keine Weiterbildung läuft")
+            bot.log("Keine Weiterbildung läuft")
             return {"success": False, "message": "Keine Weiterbildung läuft"}
 
         # Breche ab
@@ -617,7 +630,7 @@ def cancel_training(bot):
                 bot._update_activity_status(counters)
                 bot._status_cache_time = datetime.now()
             except Exception as e:
-                bot.log(f"⚠️ Could not parse counters: {e}")
+                bot.log(f"Could not parse counters: {e}")
 
             # Prüfe ob erfolgreich
             if (
@@ -625,10 +638,10 @@ def cancel_training(bot):
                 or "Weiterbildung" not in response.text
                 or "Es läuft bereits eine Weiterbildung" not in response.text
             ):
-                bot.log("✅ Weiterbildung abgebrochen")
+                bot.log("Weiterbildung abgebrochen")
                 return {"success": True, "message": "Weiterbildung abgebrochen"}
             else:
-                bot.log("⚠️ Abbruch möglicherweise fehlgeschlagen")
+                bot.log("Abbruch möglicherweise fehlgeschlagen")
                 return {
                     "success": False,
                     "message": "Abbruch fehlgeschlagen - Status noch aktiv",
@@ -637,7 +650,7 @@ def cancel_training(bot):
             return {"success": False, "message": f"HTTP {response.status_code}"}
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Abbrechen der Weiterbildung: {e}"
+        error_msg = f"Fehler beim Abbrechen der Weiterbildung: {e}"
         bot.log(error_msg)
         return {"success": False, "message": error_msg}
 
@@ -671,19 +684,19 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
         elif target_promille > PROMILLE_SAFE_TRAINING_MAX:
             target_promille = PROMILLE_SAFE_TRAINING_MAX
 
-        bot.log(f"🍺 Auto-Trinken: Ziel {target_promille:.2f}‰...")
+        bot.log(f"Auto-Trinken: Ziel {target_promille:.2f}‰...")
 
         # Hole Getränke aus Inventar
         drinks_data = bot.get_drinks_data()
         current_promille = drinks_data.get("current_promille", 0.0)
         available_drinks = drinks_data.get("drinks", [])
 
-        bot.log(f"📊 Aktuell: {current_promille:.2f}‰")
+        bot.log(f"Aktuell: {current_promille:.2f}‰")
 
         # Prüfe ob bereits im Zielbereich oder zu hoch
         if current_promille >= target_promille:
             bot.log(
-                f"✅ Promille bereits ausreichend ({current_promille:.2f}‰ >= {target_promille:.2f}‰)"
+                f"Promille bereits ausreichend ({current_promille:.2f}‰ >= {target_promille:.2f}‰)"
             )
             return {
                 "success": True,
@@ -693,7 +706,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
             }
 
         if current_promille >= PROMILLE_WARNING_THRESHOLD:
-            bot.log(f"⚠️ Promille zu hoch ({current_promille:.2f}‰), kein Trinken!")
+            bot.log(f"Promille zu hoch ({current_promille:.2f}‰), kein Trinken!")
             return {
                 "success": False,
                 "message": f"Promille zu hoch: {current_promille:.2f}‰",
@@ -708,7 +721,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
         safe_max_increase = PROMILLE_SAFE_TRAINING_MAX - current_promille
 
         if safe_max_increase <= 0:
-            bot.log("⚠️ Bereits am sicheren Maximum")
+            bot.log("Bereits am sicheren Maximum")
             return {
                 "success": True,
                 "message": "Bereits am sicheren Maximum",
@@ -719,11 +732,11 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
         # Begrenze auf sicheren Wert
         needed_promille = min(needed_promille, safe_max_increase)
 
-        bot.log(f"📈 Benötigt: +{needed_promille:.2f}‰")
+        bot.log(f"Benötigt: +{needed_promille:.2f}‰")
 
         # Keine Getränke verfügbar?
         if not available_drinks:
-            bot.log("⚠️ Keine Getränke im Inventar!")
+            bot.log("Keine Getränke im Inventar!")
             return {
                 "success": False,
                 "message": "Keine Getränke verfügbar",
@@ -777,7 +790,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
             total_vodka_effect = vodka_effect * vodka_amount
             if total_vodka_effect <= safe_max_increase:
                 bot.log(
-                    f"🥃 Trinke {vodka_amount}x {vodka_name} (je {vodka_effect}‰) - Hauptgetränk"
+                    f"Trinke {vodka_amount}x {vodka_name} (je {vodka_effect}‰) - Hauptgetränk"
                 )
 
                 result = bot.drink(vodka_name, vodka_id, vodka_promille, vodka_amount)
@@ -789,7 +802,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
                         f"{vodka_amount}x {vodka_name} (+{total_vodka_effect:.2f}‰)"
                     )
                     bot.log(
-                        f"✅ {vodka_name} getrunken: Jetzt bei {current_promille:.2f}‰"
+                        f"{vodka_name} getrunken: Jetzt bei {current_promille:.2f}‰"
                     )
 
                     # Aktualisiere benötigten Rest
@@ -814,7 +827,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
             total_weak_effect = weak_effect * weak_amount
             if total_weak_effect <= safe_max_increase:
                 bot.log(
-                    f"� Trinke {weak_amount}x {weak_name} (je {weak_effect}‰) - Feinadjust"
+                    f"Trinke {weak_amount}x {weak_name} (je {weak_effect}‰) - Feinadjust"
                 )
 
                 result = bot.drink(weak_name, weak_id, weak_promille, weak_amount)
@@ -826,14 +839,14 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
                         f"{weak_amount}x {weak_name} (+{total_weak_effect:.2f}‰)"
                     )
                     bot.log(
-                        f"✅ {weak_name} getrunken: Jetzt bei {current_promille:.2f}‰"
+                        f"{weak_name} getrunken: Jetzt bei {current_promille:.2f}‰"
                     )
 
         # Ergebnis
         if total_drank:
             drinks_str = " + ".join(drinks_consumed)
             bot.log(
-                f"✅ Auto-Trinken erfolgreich: {drinks_str} → {current_promille:.2f}‰"
+                f"Auto-Trinken erfolgreich: {drinks_str} → {current_promille:.2f}‰"
             )
             return {
                 "success": True,
@@ -842,7 +855,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
                 "drank": True,
             }
         else:
-            bot.log("⚠️ Kein passendes Getränk gefunden oder bereits am Ziel")
+            bot.log("Kein passendes Getränk gefunden oder bereits am Ziel")
             return {
                 "success": True,
                 "message": "Bereits am Ziel oder kein passendes Getränk",
@@ -851,7 +864,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
             }
 
     except Exception as e:
-        error_msg = f"❌ Fehler beim Auto-Trinken: {e}"
+        error_msg = f"Fehler beim Auto-Trinken: {e}"
         bot.log(error_msg)
         return {
             "success": False,

@@ -8,6 +8,8 @@ import httpx
 
 from .constants import (
     BASE_URL,
+    CITIES,
+    DEFAULT_CITY,
     CACHE_TTL_ACTIVITIES,
     CACHE_TTL_LOGIN,
     CACHE_TTL_STATUS,
@@ -88,6 +90,15 @@ class PennerBot:
             logger.warning(f"Failed to load user agent from settings: {e}")
         return None
 
+    def _load_city(self) -> str:
+        """Lade die ausgewählte Stadt aus der Datenbank"""
+        return self.get_city()
+
+    def get_current_base_url(self) -> str:
+        """Hole die aktuelle Base URL basierend auf der ausgewählten Stadt"""
+        city = self._load_city()
+        return CITIES[city]
+
     def api_get(
         self,
         client: httpx.Client,
@@ -95,7 +106,7 @@ class PennerBot:
         params: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> httpx.Response:
-        url = BASE_URL + endpoint
+        url = self.get_current_base_url() + endpoint
         logger.debug(f"GET {url}")
         response = client.get(url, params=params, **kwargs)
         response.raise_for_status()
@@ -109,7 +120,7 @@ class PennerBot:
         data: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> httpx.Response:
-        url = BASE_URL + endpoint
+        url = self.get_current_base_url() + endpoint
         logger.debug(f"POST {url}")
         response = client.post(url, data=data, **kwargs)
         response.raise_for_status()
@@ -135,7 +146,7 @@ class PennerBot:
                 try:
                     self.set_penner_data(r.text)
                 except Exception as e:
-                    self.log(f"⚠️ Failed to parse penner data: {e}")
+                    self.log(f"Failed to parse penner data: {e}")
 
                 try:
                     counters = parse_header_counters(r.text)
@@ -295,6 +306,8 @@ class PennerBot:
         try:
             from src.security import CredentialEncryption
             
+            self.log("[AUTO] Attempting auto re-login...")
+            
             with get_session() as s:
                 username_setting = s.query(Settings).filter_by(key="username").first()
                 password_setting = s.query(Settings).filter_by(key="password_encrypted").first()
@@ -307,13 +320,22 @@ class PennerBot:
                         self.log(f"[FAIL] Failed to decrypt credentials: {e}")
                         return False
 
-                    self.log(f"[SYNC] Auto re-login for {username}...")
-                    return self.login(username, password)
+                    self.log(f"[AUTO] Auto re-login for {username}...")
+                    result = self.login(username, password)
+                    
+                    if result:
+                        self.log("[AUTO] Auto re-login successful")
+                    else:
+                        self.log("[AUTO] Auto re-login failed")
+                    
+                    return result
                 else:
-                    self.log("[WARN] No saved credentials for auto re-login")
+                    self.log("[AUTO] No saved credentials found for auto re-login")
                     return False
         except Exception as e:
-            self.log(f"[FAIL] Auto re-login failed: {e}")
+            self.log(f"[AUTO] Auto re-login failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def refresh_status(self, force: bool = False):
@@ -669,49 +691,131 @@ class PennerBot:
         try:
             # Handle httpx cookies safely - they might be strings or objects
             cookies_dict = {}
+            
+            # Method 1: Try to iterate as httpx.Cookies object
             try:
-                # Try to iterate as httpx.Cookies object
                 for cookie in self.client.cookies:
                     if hasattr(cookie, 'name') and hasattr(cookie, 'value'):
-                        cookies_dict[cookie.name] = cookie.value
-                    elif isinstance(cookie, tuple):
+                        cookies_dict[cookie.name] = str(cookie.value)
+                    elif isinstance(cookie, tuple) and len(cookie) >= 2:
                         # Sometimes cookies come as (name, value) tuples
-                        cookies_dict[cookie[0]] = cookie[1]
+                        cookies_dict[str(cookie[0])] = str(cookie[1])
             except Exception:
-                # Fallback: use the cookies jar directly
+                pass
+            
+            # Method 2: Fallback - use the cookies jar directly
+            if not cookies_dict:
                 try:
-                    cookies_dict = dict(self.client.cookies)
+                    # Convert all cookies to string representation
+                    for cookie_name, cookie_value in self.client.cookies.items():
+                        cookies_dict[str(cookie_name)] = str(cookie_value)
+                except Exception:
+                    pass
+            
+            # Method 3: Last resort - try to get cookies from the jar
+            if not cookies_dict:
+                try:
+                    # Try to access the underlying cookie jar
+                    if hasattr(self.client.cookies, '_jar'):
+                        for cookie in self.client.cookies._jar:
+                            if hasattr(cookie, 'name') and hasattr(cookie, 'value'):
+                                cookies_dict[str(cookie.name)] = str(cookie.value)
                 except Exception:
                     pass
             
             if not cookies_dict:
+                self.log("[WARN] No cookies found to save")
                 return  # No cookies to save
             
+            self.log(f"[SAVE] Saving {len(cookies_dict)} cookies to database")
+            
             with get_session() as s:
+                # Delete existing cookies
                 s.query(Cookie).delete()
+                
+                # Save new cookies
                 for k, v in cookies_dict.items():
-                    # Ensure value is a string
-                    if isinstance(v, str):
-                        s.add(Cookie(name=k, value=v))
+                    s.add(Cookie(name=str(k), value=str(v)))
+                
                 s.commit()
+                
+            self.log(f"[OK] Successfully saved {len(cookies_dict)} cookies")
         except Exception as e:
-            self.log(f"[WARN] Failed to save cookies: {e}")
+            self.log(f"[FAIL] Failed to save cookies: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _load_cookies(self):
-        with get_session() as s:
-            cookies = s.query(Cookie).all()
-            for cookie in cookies:
-                self.client.cookies.set(cookie.name, cookie.value)
+        try:
+            with get_session() as s:
+                cookies = s.query(Cookie).all()
+                
+                if not cookies:
+                    self.log("[LOAD] No cookies found in database")
+                    return
+                
+                self.log(f"[LOAD] Loading {len(cookies)} cookies from database")
+                
+                for cookie in cookies:
+                    try:
+                        self.client.cookies.set(str(cookie.name), str(cookie.value))
+                    except Exception as e:
+                        self.log(f"[WARN] Failed to load cookie {cookie.name}: {e}")
+                
+                self.log(f"[OK] Successfully loaded {len(cookies)} cookies")
+        except Exception as e:
+            self.log(f"[FAIL] Failed to load cookies: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def save_city(self, city: str) -> bool:
+        """Speichere die ausgewählte Stadt in der Datenbank"""
+        if city not in CITIES:
+            logger.error(f"Invalid city: {city}")
+            return False
+        
+        try:
+            with get_session() as s:
+                setting = s.query(Settings).filter_by(key="city").first()
+                if setting:
+                    setting.value = city
+                else:
+                    setting = Settings(key="city", value=city)
+                    s.add(setting)
+                s.commit()
+                logger.info(f"Saved city: {city}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to save city: {e}")
+            return False
+
+    def get_city(self) -> str:
+        """Lade die ausgewählte Stadt aus der Datenbank"""
+        try:
+            with get_session() as s:
+                setting = s.query(Settings).filter_by(key="city").first()
+                if setting and setting.value and setting.value in CITIES:
+                    logger.info(f"Loaded city: {setting.value}")
+                    return setting.value
+        except Exception as e:
+            logger.warning(f"Failed to load city from settings: {e}")
+        
+        # Fallback to default city
+        logger.info(f"Using default city: {DEFAULT_CITY}")
+        return DEFAULT_CITY
 
     def log(self, msg: str):
         """
-        Log a message: store in DB and emit to UI (console output skipped for Windows compatibility).
+        Log a message: store in DB, emit to UI, and print to console for GUI capture.
         """
-        # Store in DB and emit to UI - skip console output entirely to avoid encoding issues
+        # Print to console for GUI stdout capture
+        print(msg)
+
+        # Store in DB and emit to UI
         def _db_log():
             try:
                 from datetime import timedelta
-                
+
                 with get_session() as s:
                     log_entry = Log(message=msg, timestamp=datetime.now())
                     s.add(log_entry)
@@ -728,7 +832,7 @@ class PennerBot:
                             s.commit()
             except Exception:
                 pass  # Silent fail
-        
+
         # Emit Event for UI
         def _emit_event():
             try:
@@ -736,7 +840,7 @@ class PennerBot:
                 emit_log_added(msg)
             except Exception:
                 pass
-        
+
         # Run both in background threads - fire and forget
         threading.Thread(target=_db_log, daemon=True).start()
         threading.Thread(target=_emit_event, daemon=True).start()
@@ -781,10 +885,13 @@ class PennerBot:
                 # Restore interrupted workflows after successful login
                 self._restore_interrupted_workflows()
 
+                # Start enabled activities if bot is running
+                self._start_enabled_activities()
+
                 try:
                     self.set_penner_data(self.request.text)
                 except Exception as e:
-                    self.log(f"⚠️ Failed to parse penner data: {e}")
+                    self.log(f"Failed to parse penner data: {e}")
                 return True
             else:
                 self.log("[FAIL] Login failed")
@@ -932,7 +1039,7 @@ class PennerBot:
                         self._update_activity_status(counters)
                         self._status_cache_time = datetime.now()
                     except Exception as e:
-                        self.log(f"⚠️ Could not parse counters: {e}")
+                        self.log(f"Could not parse counters: {e}")
 
                     return {
                         "success": True,
@@ -977,7 +1084,7 @@ class PennerBot:
                         self._update_activity_status(counters)
                         self._status_cache_time = datetime.now()
                     except Exception as e:
-                        self.log(f"⚠️ Could not parse counters: {e}")
+                        self.log(f"Could not parse counters: {e}")
 
                     return {
                         "success": True,
@@ -1060,7 +1167,7 @@ class PennerBot:
 
                 promille_effect = float(promille) / 100.0 * amount
                 self.log(
-                    f"✅ {amount}x {item_name} getrunken (+{promille_effect:.2f}‰, jetzt: {new_promille:.2f}‰)"
+                    f"{amount}x {item_name} getrunken (+{promille_effect:.2f}‰, jetzt: {new_promille:.2f}‰)"
                 )
 
                 # OPTIMIERUNG: Parse Counter aus Response statt neuem Request
@@ -1069,7 +1176,7 @@ class PennerBot:
                     self._update_activity_status(counters)
                     self._status_cache_time = datetime.now()
                 except Exception as e:
-                    self.log(f"⚠️ Could not parse counters: {e}")
+                    self.log(f"Could not parse counters: {e}")
 
                 return {
                     "success": True,
@@ -1115,7 +1222,7 @@ class PennerBot:
                         self._update_activity_status(counters)
                         self._status_cache_time = datetime.now()
                     except Exception as e:
-                        self.log(f"⚠️ Could not parse counters: {e}")
+                        self.log(f"Could not parse counters: {e}")
 
                     return {
                         "success": True,
@@ -1192,7 +1299,7 @@ class PennerBot:
 
                 promille_effect = float(promille) / 100.0 * amount
                 self.log(
-                    f"✅ {amount}x {item_name} gegessen ({promille_effect:.2f}‰, jetzt: {new_promille:.2f}‰)"
+                    f"{amount}x {item_name} gegessen ({promille_effect:.2f}‰, jetzt: {new_promille:.2f}‰)"
                 )
 
                 # OPTIMIERUNG: Parse Counter aus Response statt neuem Request
@@ -1201,7 +1308,7 @@ class PennerBot:
                     self._update_activity_status(counters)
                     self._status_cache_time = datetime.now()
                 except Exception as e:
-                    self.log(f"⚠️ Could not parse counters: {e}")
+                    self.log(f"Could not parse counters: {e}")
 
                 return {
                     "success": True,
@@ -1241,7 +1348,7 @@ class PennerBot:
             # Prüfe ob bereits im Zielbereich oder darunter
             if current_promille <= target_promille:
                 self.log(
-                    f"✅ Promille bereits niedrig genug ({current_promille:.2f}‰ <= {target_promille:.2f}‰)"
+                    f"Promille bereits niedrig genug ({current_promille:.2f}‰ <= {target_promille:.2f}‰)"
                 )
                 return {
                     "success": True,
@@ -1309,14 +1416,14 @@ class PennerBot:
                             f"{amount_to_eat}x {food_name} ({total_effect:.2f}‰)"
                         )
                         self.log(
-                            f"✅ {food_name} gegessen: Jetzt bei {current_promille:.2f}‰"
+                            f"{food_name} gegessen: Jetzt bei {current_promille:.2f}‰"
                         )
 
             # Ergebnis
             if total_ate:
                 food_str = " + ".join(food_consumed)
                 self.log(
-                    f"✅ Auto-Essen erfolgreich: {food_str} → {current_promille:.2f}‰"
+                    f"Auto-Essen erfolgreich: {food_str} → {current_promille:.2f}‰"
                 )
                 return {
                     "success": True,
@@ -1500,7 +1607,28 @@ class PennerBot:
                         self.log(f"[RESTORE] Fight still running on game server - {self.fight_seconds_remaining}s remaining")
                     if self.bottles_running and self._restored_bottles_running:
                         self.log(f"[RESTORE] Bottle collecting still running on game server - {self.bottles_seconds_remaining}s remaining")
-                        
+
+                    # Mark interrupted activities for restart
+                    if not self.skill_running and self._restored_skill_running:
+                        self._save_activity_state("skill", False, 0, self._restored_skill_subtype)
+                        # Mark as interrupted for potential restart
+                        existing = s.query(BotActivity).filter_by(activity_type="skill").first()
+                        if existing:
+                            existing.was_interrupted = True
+                        self.log("[RESTORE] Skill was interrupted - marked for restart")
+                    if not self.fight_running and self._restored_fight_running:
+                        self._save_activity_state("fight", False, 0)
+                        existing = s.query(BotActivity).filter_by(activity_type="fight").first()
+                        if existing:
+                            existing.was_interrupted = True
+                        self.log("[RESTORE] Fight was interrupted - marked for restart")
+                    if not self.bottles_running and self._restored_bottles_running:
+                        self._save_activity_state("bottles", False, 0)
+                        existing = s.query(BotActivity).filter_by(activity_type="bottles").first()
+                        if existing:
+                            existing.was_interrupted = True
+                        self.log("[RESTORE] Bottle collecting was interrupted - marked for restart")
+
                     # Log current activity status after verification
                     if self.skill_running:
                         remaining = self.skill_seconds_remaining or 0
@@ -1512,26 +1640,7 @@ class PennerBot:
                         remaining = self.bottles_seconds_remaining or 0
                         self.log(f"[SYNC] Bottle collecting active - {remaining}s remaining")
                         
-                    # Berechne tatsächliche verbleibende Zeit unter Berücksichtigung der vergangenen Zeit
-                    # Setze Marker für Scheduler um fortzusetzen
-                    self._pending_activity_resume = {
-                        "bottles": {
-                            "running": self.bottles_running,
-                            "seconds_remaining": self.bottles_seconds_remaining or 0
-                        },
-                        "skill": {
-                            "running": self.skill_running,
-                            "seconds_remaining": self.skill_seconds_remaining or 0,
-                            "subtype": self._restored_skill_subtype
-                        },
-                        "fight": {
-                            "running": self.fight_running,
-                            "seconds_remaining": self.fight_seconds_remaining or 0
-                        }
-                    }
-                    
-                    self.log(f"[RESTORE] Pending resume: bottles={self._pending_activity_resume['bottles']}, skill={self._pending_activity_resume['skill']}")
-                    self.log("[SYNC] Activity states restored - scheduler will continue when activities complete")
+
                     
                 else:
                     self.log("[WARN] Could not verify restored activities with game server")
@@ -1540,6 +1649,55 @@ class PennerBot:
             self.log(f"[WARN] Failed to restore interrupted workflows: {e}")
             import traceback
             traceback.print_exc()
+
+    def _start_enabled_activities(self):
+        """
+        Starte aktivierte Aktivitäten nach erfolgreichem Login, falls Bot läuft
+        """
+        try:
+            from .models import BotConfig
+
+            with get_session() as s:
+                config = s.query(BotConfig).first()
+                if not config:
+                    self.log("[AUTO] No bot config found")
+                    return
+                if not config.is_running:
+                    self.log("[AUTO] Bot is not running")
+                    return
+
+                # Refresh status from game server to get current activity state
+                self.log("[AUTO] Fetching current activity status from game server...")
+                if not self.refresh_status(force=True):
+                    self.log("[WARN] Could not refresh status from game server")
+                    return
+
+                self.log(f"[AUTO] Config check: bottles={config.bottles_enabled}, training={config.training_enabled}, is_running={config.is_running}")
+                self.log(f"[AUTO] Current status: bottles_running={self.bottles_running}, skill_running={self.skill_running}")
+
+                # Starte Pfandflaschensammeln falls aktiviert und nicht bereits läuft
+                if config.bottles_enabled and not self.bottles_running:
+                    self.log("[AUTO] Starting bottle collecting...")
+                    from .tasks import search_bottles
+                    result = search_bottles(self, time_minutes=60)  # Default 60 Minuten
+                    if result.get("success"):
+                        self.log("[AUTO] Bottle collecting started successfully")
+                    else:
+                        self.log(f"[AUTO] Failed to start bottle collecting: {result.get('message')}")
+
+                # Starte Weiterbildung falls aktiviert und nicht bereits läuft
+                if config.training_enabled and not self.skill_running:
+                    self.log("[AUTO] Starting training...")
+                    from .tasks import start_training
+                    # Starte Angriff als Default, könnte konfigurierbar gemacht werden
+                    result = start_training(self, skill_type="att")
+                    if result.get("success"):
+                        self.log("[AUTO] Training started successfully")
+                    else:
+                        self.log(f"[AUTO] Failed to start training: {result.get('message')}")
+
+        except Exception as e:
+            self.log(f"[WARN] Failed to start enabled activities: {e}")
 
     def get_pending_activity_resume(self) -> Optional[Dict[str, Any]]:
         """
@@ -1559,36 +1717,38 @@ class PennerBot:
     def get_resume_info(self) -> Dict[str, Any]:
         """
         Gibt Informationen über fortzusetzende Aktivitäten zurück
-        
+
         Returns:
             dict mit info über laufende Aktivitäten und empfohlene Aktionen
         """
         from src.db import get_session
         from src.models import BotActivity, BotConfig
-        
+
         result = {
             "has_running_activities": False,
             "activities": [],
+            "has_interrupted_activities": False,
+            "interrupted_activities": [],
             "config_check_needed": True,
         }
-        
+
         try:
             with get_session() as s:
                 # Hole Config
                 config = s.query(BotConfig).first()
                 if not config:
                     return result
-                
+
                 # Hole laufende Aktivitäten aus DB
                 running_activities = s.query(BotActivity).filter_by(is_running=True).all()
-                
+
                 activities_info = []
                 for activity in running_activities:
                     if activity.expected_end_time and datetime.now() > activity.expected_end_time:
                         # Aktivität sollte beendet sein
                         activity.is_running = False
                         continue
-                    
+
                     activity_info = {
                         "type": activity.activity_type,
                         "subtype": activity.activity_subtype,
@@ -1596,18 +1756,33 @@ class PennerBot:
                         "expected_end": activity.expected_end_time.isoformat() if activity.expected_end_time else None,
                     }
                     activities_info.append(activity_info)
-                
+
+                # Hole unterbrochene Aktivitäten
+                interrupted_activities = s.query(BotActivity).filter_by(was_interrupted=True).all()
+
+                interrupted_info = []
+                for activity in interrupted_activities:
+                    activity_info = {
+                        "type": activity.activity_type,
+                        "subtype": activity.activity_subtype,
+                        "seconds_remaining": activity.seconds_remaining or 0,
+                        "expected_end": activity.expected_end_time.isoformat() if activity.expected_end_time else None,
+                    }
+                    interrupted_info.append(activity_info)
+
                 result["has_running_activities"] = len(activities_info) > 0
                 result["activities"] = activities_info
+                result["has_interrupted_activities"] = len(interrupted_info) > 0
+                result["interrupted_activities"] = interrupted_info
                 result["config"] = {
                     "bottles_enabled": config.bottles_enabled,
                     "training_enabled": config.training_enabled,
                     "is_running": config.is_running,
                 }
-                
+
         except Exception as e:
             self.log(f"[WARN] Failed to get resume info: {e}")
-        
+
         return result
 
     def _detect_skill_subtype(self) -> Optional[str]:
@@ -1635,3 +1810,4 @@ class PennerBot:
             self.log(f"[WARN] Could not detect skill subtype: {e}")
             
         return None
+

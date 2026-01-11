@@ -186,6 +186,8 @@ node --version
 4. Open http://127.0.0.1:8000/docs for API documentation
 5. Start coding! 🎉
 
+> Note: Version 0.0.4 updates runtime defaults so a fresh database will enable bottles, autosell and autodrink by default. See [CHANGELOG.md](CHANGELOG.md) for details.
+
 ## 📚 More Information
 
 - Read `DEVELOPMENT.md` for detailed development guide

@@ -42,6 +42,18 @@ interface BotConfigSettings {
 // Vordefinierte Zeiten für Pfandflaschensuche (in Minuten)
 const BOTTLE_DURATION_OPTIONS = [10, 30, 60, 180, 360, 540, 720];
 
+// Stadt-Definitionen
+const CITIES = [
+  { key: "hamburg", name: "Hamburg", url: "https://www.pennergame.de" },
+  { key: "vatikan", name: "Vatikan", url: "https://vatikan.pennergame.de" },
+  { key: "sylt", name: "Sylt", url: "https://sylt.pennergame.de" },
+  { key: "malle", name: "Malle", url: "https://malle.pennergame.de" },
+  { key: "reloaded", name: "Hamburg Reloaded", url: "https://reloaded.pennergame.de" },
+  { key: "koeln", name: "Köln", url: "https://koeln.pennergame.de" },
+  { key: "berlin", name: "Berlin", url: "https://berlin.pennergame.de" },
+  { key: "muenchen", name: "München", url: "https://muenchen.pennergame.de" },
+];
+
 // Skill-Definitionen
 const TRAINING_SKILLS = [
   { value: "att", label: "⚔️ Angriff", emoji: "⚔️" },
@@ -58,10 +70,11 @@ const formatDuration = (minutes: number): string => {
 
 export const SettingsPage = () => {
   const [userAgent, setUserAgent] = useState("PennerBot");
+  const [city, setCity] = useState("hamburg");
   const [botConfig, setBotConfig] = useState<BotConfigSettings>({
     bottles_enabled: false,
     bottles_duration_minutes: 60,
-    bottles_pause_minutes: 5,
+    bottles_pause_minutes: 1,
     bottles_autosell_enabled: false,
     bottles_min_price: 25,
     training_enabled: false,
@@ -69,7 +82,7 @@ export const SettingsPage = () => {
     training_att_max_level: 999,
     training_def_max_level: 999,
     training_agi_max_level: 999,
-    training_pause_minutes: 5,
+    training_pause_minutes: 1,
     training_autodrink_enabled: false,
     training_target_promille: 2.5,
   });
@@ -94,6 +107,9 @@ export const SettingsPage = () => {
         if (data.settings && data.settings.user_agent) {
           setUserAgent(data.settings.user_agent);
         }
+        if (data.settings && data.settings.city) {
+          setCity(data.settings.city);
+        }
       }
 
       // Load bot config
@@ -104,15 +120,15 @@ export const SettingsPage = () => {
           setBotConfig({
             bottles_enabled: data.config.bottles_enabled ?? true,
             bottles_duration_minutes: data.config.bottles_duration_minutes ?? 60,
-            bottles_pause_minutes: data.config.bottles_pause_minutes ?? 5,
+            bottles_pause_minutes: data.config.bottles_pause_minutes ?? 1,
             bottles_autosell_enabled: data.config.bottles_autosell_enabled ?? false,
-            bottles_min_price: data.config.bottles_min_price ?? 20,
+            bottles_min_price: data.config.bottles_min_price ?? 25,
             training_enabled: data.config.training_enabled ?? false,
             training_skills: data.config.training_skills ?? '["att", "def", "agi"]',
             training_att_max_level: data.config.training_att_max_level ?? 999,
             training_def_max_level: data.config.training_def_max_level ?? 999,
             training_agi_max_level: data.config.training_agi_max_level ?? 999,
-            training_pause_minutes: data.config.training_pause_minutes ?? 5,
+            training_pause_minutes: data.config.training_pause_minutes ?? 1,
             training_autodrink_enabled: data.config.training_autodrink_enabled ?? false,
             training_target_promille: data.config.training_target_promille ?? 2.5,
           });
@@ -138,7 +154,10 @@ export const SettingsPage = () => {
       const settingsResponse = await fetch(getApiUrl("/settings"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_agent: userAgent }),
+        body: JSON.stringify({
+          user_agent: userAgent,
+          city: city
+        }),
       });
 
       // Save bot config
@@ -626,6 +645,35 @@ export const SettingsPage = () => {
       {/* General Settings - UNTEN */}
       <DashboardCard title="Allgemeine Einstellungen" icon={FiSettings}>
         <VStack align="stretch" spacing={4}>
+          <FormControl>
+            <FormLabel color="gray.300" fontWeight="medium">
+              Stadt auswählen
+            </FormLabel>
+            <Select
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              size="lg"
+              bg="gray.700"
+              border="1px solid"
+              borderColor="whiteAlpha.300"
+              color="white"
+              _hover={{ borderColor: "teal.400" }}
+              _focus={{
+                borderColor: "teal.400",
+                boxShadow: "0 0 0 1px var(--chakra-colors-teal-400)",
+              }}
+            >
+              {CITIES.map((cityOption) => (
+                <option key={cityOption.key} value={cityOption.key}>
+                  {cityOption.name} ({cityOption.url})
+                </option>
+              ))}
+            </Select>
+            <Text fontSize="sm" color="gray.500" mt={2}>
+              Wähle die Pennergame-Stadt aus, mit der der Bot arbeiten soll
+            </Text>
+          </FormControl>
+
           <FormControl>
             <FormLabel color="gray.300" fontWeight="medium">
               User-Agent

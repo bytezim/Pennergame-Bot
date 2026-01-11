@@ -17,9 +17,10 @@ import {
   Spinner,
   Collapse,
   useDisclosure,
+  Select,
 } from "@chakra-ui/react";
 import { getApiUrl } from "../utils/api";
-import { FiLogIn, FiUser, FiLock, FiServer, FiAlertCircle, FiSettings, FiChevronDown, FiChevronUp } from "react-icons/fi";
+import { FiLogIn, FiUser, FiLock, FiServer, FiAlertCircle, FiSettings, FiChevronDown, FiChevronUp, FiGlobe } from "react-icons/fi";
 
 interface LoginPageProps {
   onLoginSuccess: (showToast?: boolean) => void;
@@ -29,22 +30,35 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [userAgent, setUserAgent] = useState("");
+  const [city, setCity] = useState("hamburg");
   const [loading, setLoading] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const { isOpen, onToggle } = useDisclosure();
   const toast = useToast();
 
-  // Detect and save browser user agent on first visit
+  // City configuration
+  const cities = [
+    { key: "hamburg", name: "Hamburg" },
+    { key: "vatikan", name: "Vatikan" },
+    { key: "sylt", name: "Sylt" },
+    { key: "malle", name: "Malle" },
+    { key: "reloaded", name: "Hamburg Reloaded" },
+    { key: "koeln", name: "Köln" },
+    { key: "berlin", name: "Berlin" },
+    { key: "muenchen", name: "München" },
+  ];
+
+  // Detect and save browser user agent and city on first visit
   useEffect(() => {
-    const initializeUserAgent = async () => {
+    const initializeSettings = async () => {
       try {
-        // First, check if user agent is already saved in backend
+        // First, check if settings are already saved in backend
         const response = await fetch(getApiUrl("/settings"));
         if (response.ok) {
           const data = await response.json();
           
+          // Load user agent
           if (data.settings && data.settings.user_agent) {
-            // User agent already saved, use it
             setUserAgent(data.settings.user_agent);
             console.log("Loaded existing user agent:", data.settings.user_agent);
           } else {
@@ -52,24 +66,26 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
             const browserUA = navigator.userAgent;
             setUserAgent(browserUA);
             console.log("Detected browser user agent:", browserUA);
-            
-            // Save it to backend for future use
-            await fetch(getApiUrl("/settings"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ user_agent: browserUA }),
-            });
-            console.log("Saved browser user agent to database");
+          }
+          
+          // Load city
+          if (data.settings && data.settings.city) {
+            setCity(data.settings.city);
+            console.log("Loaded existing city:", data.settings.city);
+          } else {
+            // No city saved yet, use default (hamburg)
+            console.log("Using default city: hamburg");
           }
         }
       } catch (error) {
-        console.error("Failed to initialize user agent:", error);
-        // Fallback to browser UA
+        console.error("Failed to initialize settings:", error);
+        // Fallback to defaults
         setUserAgent(navigator.userAgent);
+        setCity("hamburg");
       }
     };
     
-    initializeUserAgent();
+    initializeSettings();
   }, []);
 
   // Attempt auto-login on mount if credentials are saved
@@ -127,6 +143,23 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
     }
   };
 
+  const handleCityChange = async (newCity: string) => {
+    setCity(newCity);
+    try {
+      // Save city immediately when changed
+      await fetch(getApiUrl("/settings"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          city: newCity
+        }),
+      });
+      console.log("City saved:", newCity);
+    } catch (error) {
+      console.error("Failed to save city:", error);
+    }
+  };
+
   const handleLogin = async () => {
     if (!username || !password) {
       toast({
@@ -140,12 +173,15 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
 
     setLoading(true);
     try {
-      // First, set the user agent before login (if changed from default)
-      if (userAgent) {
+      // First, set the user agent and city before login
+      if (userAgent || city) {
         await fetch(getApiUrl("/settings"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_agent: userAgent }),
+          body: JSON.stringify({
+            user_agent: userAgent,
+            city: city
+          }),
         });
       }
 
@@ -331,6 +367,36 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
                     }}
                   />
                 </InputGroup>
+              </FormControl>
+
+              <FormControl isDisabled={backendStatus !== "online"}>
+                <FormLabel color="gray.300" fontWeight="medium">
+                  <Icon as={FiGlobe} mr={2} />
+                  Stadt auswählen
+                </FormLabel>
+                <Select
+                  value={city}
+                  onChange={(e) => handleCityChange(e.target.value)}
+                  size="lg"
+                  bg="gray.700"
+                  border="1px solid"
+                  borderColor="whiteAlpha.300"
+                  color="white"
+                  _hover={{ borderColor: "teal.400" }}
+                  _focus={{
+                    borderColor: "teal.400",
+                    boxShadow: "0 0 0 1px var(--chakra-colors-teal-400)",
+                  }}
+                >
+                  {cities.map((cityOption) => (
+                    <option key={cityOption.key} value={cityOption.key}>
+                      {cityOption.name}
+                    </option>
+                  ))}
+                </Select>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  Wähle die Pennergame-Stadt aus, mit der du dich anmelden möchtest
+                </Text>
               </FormControl>
 
               {/* Advanced Settings - User Agent */}

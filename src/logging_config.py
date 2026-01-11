@@ -43,6 +43,7 @@ def setup_logging(
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
+    console_handler.encoding = "utf-8"  # Ensure proper Unicode handling for emojis
 
     # Root logger configuration
     root_logger = logging.getLogger()

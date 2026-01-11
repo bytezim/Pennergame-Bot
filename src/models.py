@@ -4,6 +4,18 @@ from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Inte
 from sqlalchemy.orm import relationship
 
 from .db import Base
+from .constants import (
+    VALID_TRAINING_SKILLS,
+    DEFAULT_TRAINING_PAUSE,
+    DEFAULT_TRAINING_MAX_LEVEL,
+    BOTTLE_ENABLED_DEFAULT,
+    TRAINING_ENABLED_DEFAULT,
+    DEFAULT_BOTTLE_DURATION,
+    DEFAULT_BOTTLE_PAUSE,
+    AUTOSELL_ENABLED_DEFAULT,
+    DEFAULT_AUTOSELL_MIN_PRICE,
+    AUTODRINK_ENABLED_DEFAULT,
+)
 
 
 class Log(Base):
@@ -126,10 +138,30 @@ class BotActivity(Base):
     activity_type = Column(String, nullable=False)  # 'skill', 'fight', 'bottles'
     activity_subtype = Column(String, nullable=True)  # 'att', 'def', 'agi' for skills
     is_running = Column(Boolean, nullable=False, default=False)
+    was_interrupted = Column(Boolean, default=False, nullable=False)
     start_time = Column(DateTime, nullable=True)
     expected_end_time = Column(DateTime, nullable=True)
     seconds_remaining = Column(Integer, nullable=True)
     additional_data = Column(String, nullable=True)  # JSON for extra context
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class ActivityQueue(Base):
+    """Dynamische Activity Queue für automatische Activity-Verarbeitung"""
+
+    __tablename__ = "activity_queue"
+    id = Column(Integer, primary_key=True)
+    activity_type = Column(String, nullable=False)  # 'bottles', 'skill', 'fight'
+    priority = Column(Integer, default=2)  # 1=LOW, 2=NORMAL, 3=HIGH, 4=CRITICAL
+    parallel = Column(Boolean, default=False)  # Kann parallel laufen
+    config = Column(String, nullable=True)  # JSON config
+    status = Column(String, default="pending")  # pending, queued, running, completed, failed
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    error_message = Column(String, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -147,47 +179,45 @@ class BotConfig(Base):
 
     # Pfandflaschen-Sammeln Konfiguration
     # Valid times: 10, 30, 60, 180, 360, 540, 720 minutes
-    bottles_enabled = Column(Boolean, default=True, nullable=False)
+    bottles_enabled = Column(Boolean, default=BOTTLE_ENABLED_DEFAULT, nullable=False)
     bottles_duration_minutes = Column(
-        Integer, default=60, nullable=False
+        Integer, default=DEFAULT_BOTTLE_DURATION, nullable=False
     )  # Sammeldauer in Minuten (nur vordefinierte Werte erlaubt)
     bottles_pause_minutes = Column(
-        Integer, default=5, nullable=False
+        Integer, default=DEFAULT_BOTTLE_PAUSE, nullable=False
     )  # Pause zwischen Sammelaktionen
 
     # Pfandflaschen Auto-Verkauf Konfiguration
-    bottles_autosell_enabled = Column(Boolean, default=False, nullable=False)
+    bottles_autosell_enabled = Column(Boolean, default=AUTOSELL_ENABLED_DEFAULT, nullable=False)
     bottles_min_price = Column(
-        Integer, default=25, nullable=False
+        Integer, default=DEFAULT_AUTOSELL_MIN_PRICE, nullable=False
     )  # Mindestpreis in Cent (15-25)
 
     # Weiterbildungen Konfiguration
-    training_enabled = Column(Boolean, default=False, nullable=False)
+    training_enabled = Column(Boolean, default=TRAINING_ENABLED_DEFAULT, nullable=False)
     training_skills = Column(
         String, default='["att", "def", "agi"]', nullable=False
     )  # JSON-Array der aktiven Skills (z.B. ["att", "def"])
     training_att_max_level = Column(
-        Integer, default=999, nullable=False
+        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
     )  # Max Level für Angriff (999 = kein Limit)
     training_def_max_level = Column(
-        Integer, default=999, nullable=False
+        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
     )  # Max Level für Verteidigung (999 = kein Limit)
     training_agi_max_level = Column(
-        Integer, default=999, nullable=False
+        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
     )  # Max Level für Geschicklichkeit (999 = kein Limit)
     training_pause_minutes = Column(
-        Integer, default=5, nullable=False
+        Integer, default=DEFAULT_TRAINING_PAUSE, nullable=False
     )  # Pause zwischen Weiterbildungen
 
     # Weiterbildungen Auto-Trinken Konfiguration
     training_autodrink_enabled = Column(
-        Boolean, default=False, nullable=False
+        Boolean, default=AUTODRINK_ENABLED_DEFAULT, nullable=False
     )  # Automatisch vor Training trinken
     training_target_promille = Column(
         Float, default=2.5, nullable=False
     )  # Ziel-Promillewert (2.0-3.0)
 
-    # Nächste geplante Ausführungszeiten für Tasks (für Scheduler Persistence)
-    bottles_next_run = Column(DateTime, nullable=True)
-    training_next_run = Column(DateTime, nullable=True)
-    fight_next_run = Column(DateTime, nullable=True)
+    # Nächste geplante Ausführungszeiten werden vom Scheduler (APScheduler SQLAlchemyJobStore) verwaltet
+    # Daher keine redundanten next_run Spalten hier - der Scheduler persistiert seine Jobs selbst

@@ -179,30 +179,35 @@ export const DashboardPage = ({
         <Text fontSize="lg" fontWeight="bold" color="white" className="slide-in">
           Spieler-Übersicht
         </Text>
-        <SimpleGrid columns={[1, 2, 4]} spacing={4}>
+        <SimpleGrid columns={[1, 2, 3]} spacing={6}>
           <StatCard label="Spielername" value={penner?.username} icon={FiUser} />
-          <StatCard 
-            label="Rang" 
-            value={penner?.rank} 
-            icon={FiAward} 
-            trend={penner?.rank_trend ? `${penner.rank_trend} (24h)` : undefined} 
+          <StatCard
+            label="Stadt"
+            value={penner?.city || "Hamburg"}
+            icon={FiUser}
           />
-          <StatCard 
-            label="Punkte" 
-            value={penner?.points?.toLocaleString()} 
+          <StatCard
+            label="Rang"
+            value={penner?.rank}
+            icon={FiAward}
+            trend={penner?.rank_trend}
+          />
+          <StatCard
+            label="Punkte"
+            value={penner?.points?.toLocaleString()}
             icon={FiTrendingUp}
-            trend={penner?.points_trend ? `${penner.points_trend} (24h)` : undefined}
+            trend={penner?.points_trend}
           />
-          <StatCard 
-            label="Geld" 
-            value={penner?.money} 
+          <StatCard
+            label="Geld"
+            value={penner?.money}
             icon={FiDollarSign}
-            trend={penner?.money_trend ? `${penner.money_trend} (24h)` : undefined}
+            trend={penner?.money_trend}
           />
+          <StatCard label="Promille" value={penner?.promille} icon={FiActivity} />
         </SimpleGrid>
 
-        <SimpleGrid columns={[1, 2, 4]} spacing={4}>
-          <StatCard label="Promille" value={penner?.promille} icon={FiActivity} />
+        <SimpleGrid columns={[1, 2, 3]} spacing={6}>
           <StatCard label="Angriff" value={penner?.att} icon={FiShield} />
           <StatCard label="Verteidigung" value={penner?.deff} icon={FiShield} />
           <StatCard label="Sauberkeit" value={penner?.cleanliness} icon={FiActivity} />
