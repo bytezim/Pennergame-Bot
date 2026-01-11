@@ -30,7 +30,7 @@
 PennerBot ist eine **vollständige Desktop-Anwendung** für die Automatisierung von Pennergame.de-Aktivitäten. Das Projekt kombiniert ein robustes Python-Backend (FastAPI) mit einem modernen React-Frontend.
 
 ### 🌟 Hauptfunktionen
-- 🎮 **Browser-Automatisierung** für Pennergame.de (Hamburg)
+- 🎮 **Browser-Automatisierung** für Pennergame.de
 - 💻 **Native Desktop-App** (Windows .exe) ohne Browser-Installation
 - 🌐 **Modernes Web-Dashboard** mit Echtzeit-Updates
 - 📊 **Responsive Dark-Theme UI** mit Chakra UI
@@ -65,10 +65,10 @@ PennerBot ist eine **vollständige Desktop-Anwendung** für die Automatisierung 
 - **PyInstaller** - EXE-Erstellung
 - **SQLite** - Integrierte Datenbank
 
-> ⚠️ **WICHTIGER HINWEIS:** Dies ist ein **Demonstrations-/Lernprojekt** und **kein Produktionssystem**. Die Funktionalität ist aktuell auf **Hamburg** beschränkt.
+> ⚠️ **WICHTIGER HINWEIS:** Dies ist ein **Lernprojekt**
 
 ### 🌟 Aktuelle Features
-- ✅ **Automatisiertes Flaschensammeln** (nur Hamburg)
+- ✅ **Automatisiertes Flaschensammeln**
 - ✅ **Weiterbildungen** (ATT, DEF, AGI)
 - ✅ **Modernes Web-Dashboard** mit Echtzeit-Updates
 - ✅ **Responsive Dark-Theme UI**
@@ -273,13 +273,10 @@ Dieses Projekt ist **Open Source** und freut sich über Mitwirkende!
 | Feature | Status | Beschreibung |
 |---------|--------|--------------|
 | 🏗️ **Projekt-Struktur** | ✅ Fertig | FastAPI + React + SQLite |
-| 📍 **Hamburg Support** | ✅ Fertig | Vollständig implementiert |
 | 🍾 **Flaschen sammeln** | ✅ Fertig | Automatisiert |
 | 📚 **Weiterbildungen** | ✅ Fertig | ATT, DEF, AGI |
-| 🌐 **Andere Städte** | 🚧 Geplant | Erfordert Testing |
 | 🏠 **Haustier-Streunen** | 🚧 Geplant | In Entwicklung |
 | ⚔️ **Kampf-System** | 🚧 Geplant | Geplant |
-
 ---
 
 ## 📜 Lizenz
