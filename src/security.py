@@ -104,9 +104,16 @@ class CredentialEncryption:
         """
         import platform
         import os
-        
+        import getpass
+
+        # Determine current user in a container-safe way
+        try:
+            user = getpass.getuser()
+        except Exception:
+            user = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
+
         # Combine machine-specific identifiers
-        machine_id = f"{platform.node()}-{platform.machine()}-{os.getlogin()}"
+        machine_id = f"{platform.node()}-{platform.machine()}-{user}"
         
         # Derive key using PBKDF2HMAC
         kdf = PBKDF2HMAC(
