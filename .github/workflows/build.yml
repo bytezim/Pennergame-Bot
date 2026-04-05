@@ -76,11 +76,13 @@ jobs:
         echo "sha256=$sha256" >> $env:GITHUB_OUTPUT
         echo "size=$size MB" >> $env:GITHUB_OUTPUT
 
-    - name: Upload EXE DIRECT (NO ZIP)
-      uses: actions/upload-artifact@v3
+    - name: Upload EXE
+      uses: actions/upload-artifact@v4
       with:
-        name: PennerBot.exe
+        name: PennerBot
         path: dist/PennerBot.exe
+        compression-level: 0
+        overwrite: true
 
     - name: Update Latest Release
       uses: softprops/action-gh-release@v2
