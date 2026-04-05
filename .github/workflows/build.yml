@@ -50,8 +50,9 @@ jobs:
 
     - name: Fix PyInstaller Windows Bug
       run: |
-        $env:PYINSTALLER_COMPILE_BOOTLOADER = '1'
-        $env:PYINSTALLER_BOOTLOADER_FAVOR = 'debug'
+        # Remove bootloader compilation to avoid issues
+        # $env:PYINSTALLER_COMPILE_BOOTLOADER = '1'
+        # $env:PYINSTALLER_BOOTLOADER_FAVOR = 'debug'
         $env:PYTHONOPTIMIZE = '1'
 
     - name: Build EXE with PyInstaller

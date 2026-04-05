@@ -66,13 +66,44 @@ def close_db_connection():
     are cleaned up properly.
     """
     try:
+        import time
         # Perform a WAL checkpoint to merge all pending writes into the main db
         from sqlalchemy import text
-        with engine.connect() as conn:
-            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        
+        # Retry checkpoint multiple times as it might fail if there are active transactions
+        for attempt in range(3):
+            try:
+                with engine.connect() as conn:
+                    result = conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+                    checkpoint_result = result.fetchone()
+                    if checkpoint_result and checkpoint_result[0] == 0:
+                        # Checkpoint successful
+                        break
+            except Exception:
+                time.sleep(0.1)
         
         # Dispose the engine to close all connections
         engine.dispose()
+        
+        # On Windows, explicitly unlink WAL/SHM files if they still exist
+        if sys.platform == 'win32':
+            try:
+                db_path = get_data_dir() / DB_PATH
+                wal_path = db_path.with_suffix(db_path.suffix + '-wal')
+                shm_path = db_path.with_suffix(db_path.suffix + '-shm')
+                
+                # Wait a moment for locks to be released
+                time.sleep(0.2)
+                
+                for path in [wal_path, shm_path]:
+                    if path.exists():
+                        try:
+                            path.unlink()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+                
     except Exception as e:
         print(f"Error during database shutdown: {e}")
 
@@ -126,8 +157,34 @@ def get_session() -> Generator[Session, None, None]:
         session.close()
 
 
+def _cleanup_stale_wal_files() -> None:
+    """Clean up stale WAL and SHM files from previous crashes.
+
+    This prevents accumulation of temporary files when the application
+    doesn't shut down cleanly.
+    """
+    if sys.platform == 'win32':
+        try:
+            db_path = DATA_DIR / DB_PATH
+            wal_path = db_path.with_suffix(db_path.suffix + '-wal')
+            shm_path = db_path.with_suffix(db_path.suffix + '-shm')
+
+            for path in [wal_path, shm_path]:
+                if path.exists():
+                    try:
+                        path.unlink()
+                        print(f"[db] Cleaned up stale file: {path.name}")
+                    except Exception as e:
+                        print(f"[db] Could not remove stale file {path.name}: {e}")
+        except Exception as e:
+            print(f"[db] Error during WAL cleanup: {e}")
+
+
 def init_db() -> None:
     """Initialize database tables."""
+    # Clean up any leftover WAL/SHM files from previous crashes
+    _cleanup_stale_wal_files()
+
     # Use checkfirst=True to avoid errors if tables already exist
     Base.metadata.create_all(bind=engine, checkfirst=True)
     # After creating tables, perform lightweight schema migrations

@@ -60,6 +60,8 @@ class ProcessManager:
         self._backend_reader = None  # StringIO for bundle mode
         self._backend_output = []  # List to capture backend output in bundle mode
         self._backend_lock = threading.Lock()
+        self._uvicorn_server = None
+        self._should_exit = threading.Event()
         
     def start_backend(self, port: int = 8000) -> bool:
         """Start the FastAPI backend"""
@@ -87,10 +89,15 @@ class ProcessManager:
                         if bundle_dir not in sys.path:
                             sys.path.insert(0, bundle_dir)
                     
-                    # Import and run server directly (not via string reference)
+                    # Import and run server directly with proper shutdown capability
                     import uvicorn
                     from server import app
-                    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+                    
+                    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+                    self._uvicorn_server = uvicorn.Server(config)
+                    
+                    # Run server
+                    self._uvicorn_server.run()
                 except Exception as e:
                     error_msg = f"Backend thread error: {e}"
                     try:
@@ -102,6 +109,7 @@ class ProcessManager:
                 finally:
                     sys.stdout = old_stdout
                     sys.stderr = old_stderr
+                    self._uvicorn_server = None
             
             self._backend_thread = threading.Thread(target=run_backend, daemon=True)
             self._backend_thread.start()
@@ -191,6 +199,18 @@ class ProcessManager:
     
     def stop_backend(self):
         """Stop the backend process"""
+        if self.is_pyinstaller_bundle and self._uvicorn_server:
+            try:
+                # Gracefully stop uvicorn server
+                import asyncio
+                if hasattr(self._uvicorn_server, 'should_exit'):
+                    self._uvicorn_server.should_exit = True
+                # Wait a bit for server to shutdown
+                import time
+                time.sleep(1.5)
+            except Exception as e:
+                print(f"Error stopping uvicorn server: {e}")
+        
         if self.backend_process:
             try:
                 self.backend_process.terminate()
@@ -648,12 +668,20 @@ class SimpleGUI:
         # Stop processes
         self.process_manager.stop_all()
         
+        # Give threads time to terminate properly
+        import time
+        time.sleep(0.5)
+        
         # Close database connection properly (merges WAL, removes shm/wal files)
         close_db_connection()
         
+        # Extra wait for file locks to be released
+        time.sleep(0.2)
+        
         # Destroy GUI
-        self.root.quit()
-        self.root.destroy()
+        if self.root:
+            self.root.quit()
+            self.root.destroy()
     
     def run(self):
         """Run the GUI application"""

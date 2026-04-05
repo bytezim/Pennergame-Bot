@@ -61,9 +61,9 @@ def add_task(func, trigger, job_id=None, **trigger_args):
 
 def start_scheduler():
     if not scheduler.running:
-        # Lösche ALLE alten Jobs DIREKT im Job Store bevor Scheduler startet
+        scheduler.start()  # Start scheduler first to create tables
+        # Lösche ALLE alten Jobs DIREKT im Job Store
         jobstores['default'].remove_all_jobs()
-        scheduler.start()
         # Danach nochmal alle Jobs im laufenden Scheduler entfernen
         scheduler.remove_all_jobs()
 

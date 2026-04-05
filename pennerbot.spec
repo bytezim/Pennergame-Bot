@@ -14,6 +14,8 @@ datas = [
     ('server.py', '.'),  # Server module (needed for direct import in bundle mode)
     ('gui_launcher.py', '.'),  # GUI launcher module
     ('web/serve.py', 'web'),  # Web server module
+    ('README.md', '.'),  # Documentation
+    ('LICENSE', '.'),  # License file
 ] + collect_data_files('tkinter')
 
 # Collect all hidden imports (modules loaded dynamically)
@@ -50,11 +52,16 @@ hiddenimports = [
     'sqlalchemy.ext.declarative',
     'sqlalchemy.orm',
     'sqlalchemy.orm.decl_api',
+    'sqlalchemy.pool',
+    'sqlalchemy.event',
+    'sqlalchemy.engine',
     # HTTP client
     'httpx',
     'httpx._api',
     # Scheduler
     'apscheduler.schedulers.asyncio',
+    'apscheduler.executors.asyncio',
+    'apscheduler.jobstores.sqlalchemy',
     # GUI components
     'tkinter',
     'tkinter.ttk',
@@ -67,6 +74,9 @@ hiddenimports = [
     # Event loop
     'asyncio',
     'asyncio.base_events',
+    'asyncio.windows_events',
+    # SQLite Windows support
+    'sqlite3',
 ]
 
 # Exclude unnecessary modules to reduce size
@@ -118,8 +128,8 @@ exe = EXE(
     name='PennerBot',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,  # Strip symbols to reduce size
-    upx=True,  # UPX compression enabled
+    strip=False,
+    upx=False,
     upx_exclude=[
         # Exclude system DLLs from UPX compression (prevents issues)
         'vcruntime*.dll',
