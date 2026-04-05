@@ -655,7 +655,7 @@ def cancel_training(bot):
         return {"success": False, "message": error_msg}
 
 
-def auto_drink_before_training(bot, target_promille: float = 2.5):
+def auto_drink_before_training(bot, target_promille: float = 3.5):
     """
     Trinke automatisch Getränke um Ziel-Promille zu erreichen (für Weiterbildungen)
     Sicherheitslogik:
@@ -666,7 +666,7 @@ def auto_drink_before_training(bot, target_promille: float = 2.5):
 
     Args:
         bot: PennerBot instance
-        target_promille: Ziel-Promillewert (Default: 2.5, Range: 2.0-3.0)
+        target_promille: Ziel-Promillewert (Default: 3.5, Range: 2.0-4.0)
 
     Returns:
         dict: {"success": bool, "message": str, "current_promille": float, "drank": bool}

@@ -4,6 +4,7 @@ PennerBot GUI Launcher
 """
 
 import sys
+import os
 import json
 import threading
 import subprocess
@@ -342,6 +343,15 @@ class SimpleGUI:
         """Setup the minimal GUI"""
         self.root = tk.Tk()
         self.root.title("PennerBot")
+        # Set window icon
+        if hasattr(sys, '_MEIPASS'):
+            icon_path = os.path.join(sys._MEIPASS, 'web', 'dist', 'favicon.ico')
+        else:
+            icon_path = 'web/dist/favicon.ico'
+        try:
+            self.root.iconbitmap(icon_path)
+        except tk.TclError:
+            pass  # Icon not found, use default
         self.root.geometry("800x600+100+100")
         
         # Remove window decorations that add padding

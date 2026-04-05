@@ -216,8 +216,8 @@ class BotConfig(Base):
         Boolean, default=AUTODRINK_ENABLED_DEFAULT, nullable=False
     )  # Automatisch vor Training trinken
     training_target_promille = Column(
-        Float, default=2.5, nullable=False
-    )  # Ziel-Promillewert (2.0-3.0)
+        Float, default=3.5, nullable=False
+    )  # Ziel-Promillewert (2.0-4.0)
 
     # Nächste geplante Ausführungszeiten werden vom Scheduler (APScheduler SQLAlchemyJobStore) verwaltet
     # Daher keine redundanten next_run Spalten hier - der Scheduler persistiert seine Jobs selbst

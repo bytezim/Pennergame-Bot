@@ -1726,7 +1726,7 @@ class PennerBot:
                     self.log("[AUTO] Starting training...")
                     # Auto-Trinken vor Weiterbildung falls aktiviert
                     autodrink_enabled = getattr(config, 'training_autodrink_enabled', False)
-                    target_promille = getattr(config, 'training_target_promille', 2.5)
+                    target_promille = getattr(config, 'training_target_promille', 3.5)
                     if autodrink_enabled:
                         self.log(f"[AUTO] Auto-Trinken aktiviert (Ziel: {target_promille:.1f}‰)...")
                         from .tasks import auto_drink_before_training

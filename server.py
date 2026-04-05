@@ -42,6 +42,65 @@ atexit.register(close_db_connection)
 
 
 @asynccontextmanager
+def event_handler_worker():
+    """
+    Worker thread that handles internal events, particularly activity completions
+    to reschedule automated tasks.
+    """
+    from queue import Empty
+
+    # Subscribe to activity completion events
+    queue = event_bus.subscribe("activity_completed")
+
+    logger.info("Event handler thread started")
+
+    while True:
+        try:
+            event = queue.get(timeout=1.0)  # Block with timeout to allow thread shutdown
+            activity_name = event.data.get("activity")
+
+            if activity_name == "bottles":
+                logger.info("Bottle collection completed in game, checking if we need to reschedule...")
+                # Check if bot is running and bottles are enabled
+                try:
+                    with get_session() as s:
+                        from src.models import BotConfig
+                        config = s.query(BotConfig).first()
+                        if config and config.is_running and config.bottles_enabled:
+                            # Reschedule next bottle collection
+                            _schedule_next_bottles_task()
+                            logger.info("Rescheduled next bottle collection after game completion")
+                        else:
+                            logger.debug("Bot not running or bottles disabled, skipping reschedule")
+                except Exception as e:
+                    logger.error(f"Error rescheduling bottles after completion: {e}")
+
+            elif activity_name == "skill":
+                logger.info("Training completed in game, checking if we need to reschedule...")
+                # Check if bot is running and training is enabled
+                try:
+                    with get_session() as s:
+                        from src.models import BotConfig
+                        config = s.query(BotConfig).first()
+                        if config and config.is_running and config.training_enabled:
+                            # Reschedule next training
+                            _schedule_next_training_task()
+                            logger.info("Rescheduled next training after game completion")
+                        else:
+                            logger.debug("Bot not running or training disabled, skipping reschedule")
+                except Exception as e:
+                    logger.error(f"Error rescheduling training after completion: {e}")
+
+            elif activity_name == "fight":
+                logger.debug("Fight completed in game - no automatic rescheduling for fights")
+
+        except Empty:
+            continue  # Timeout, check again
+        except Exception as e:
+            logger.error(f"Event handler error: {e}")
+            # Don't crash the thread, continue processing
+
+
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
     # Startup: ensure DB is initialized (create tables + migrations)
@@ -65,13 +124,18 @@ async def lifespan(app: FastAPI):
         logger.info("🚀 Starting scheduler...")
         start_scheduler()
         logger.info(f"✅ Scheduler started: {scheduler.running}")
-        
+
         # Get current bot config
         config = get_bot_config()
-        
+
         # Manage scheduler jobs based on current config
         manage_scheduler_jobs(config)
-        
+
+        # Start event handler thread for activity completion
+        event_handler_thread = threading.Thread(target=event_handler_worker, daemon=True)
+        event_handler_thread.start()
+        logger.info("✅ Event handler thread started")
+
         logger.info("✅ Startup initialization completed")
     except Exception as e:
         logger.error(f"Scheduler startup failed: {e}")
@@ -1743,7 +1807,7 @@ def bot_start() -> Dict[str, Any]:
                 current_bot.log("[START] Training not running, starting now...")
                 
                 autodrink = config.get("training_autodrink_enabled", False)
-                target = config.get("training_target_promille", 2.5)
+                target = config.get("training_target_promille", 3.5)
                 
                 if autodrink:
                     current_bot.log(f"Auto-Trinken aktiviert (Ziel: {target:.2f}‰)")

@@ -88,7 +88,7 @@ AUTODRINK_ENABLED_DEFAULT: Final[bool] = True
 # ===========================
 PROMILLE_WARNING_THRESHOLD: Final[float] = 3.5
 PROMILLE_SAFE_TRAINING_MIN: Final[float] = 2.0  # Mindest-Promille für Training
-PROMILLE_SAFE_TRAINING_MAX: Final[float] = 3.0  # Maximum für sicheres Training
+PROMILLE_SAFE_TRAINING_MAX: Final[float] = 4.0  # Maximum für sicheres Training
 
 # ===========================
 # Security
@@ -120,8 +120,8 @@ ACTIVITY_MONITOR_JOB_ID: Final[str] = "activity_monitor_job"
 # ===========================
 # Pause variation multiplier used to add randomness to wait times
 # e.g. +/-20% -> 0.8 .. 1.2
-PAUSE_VARIATION_MIN: Final[float] = 0.8
-PAUSE_VARIATION_MAX: Final[float] = 1.2
+PAUSE_VARIATION_MIN: Final[float] = 0.99
+PAUSE_VARIATION_MAX: Final[float] = 1.01
 
 
 # ===========================

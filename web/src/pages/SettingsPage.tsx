@@ -84,7 +84,7 @@ export const SettingsPage = () => {
     training_agi_max_level: 999,
     training_pause_minutes: 1,
     training_autodrink_enabled: false,
-    training_target_promille: 2.5,
+    training_target_promille: 3.5,
   });
   const [bottlesExpanded, setBottlesExpanded] = useState(false);
   const [trainingExpanded, setTrainingExpanded] = useState(false);
@@ -567,7 +567,7 @@ export const SettingsPage = () => {
                   <Collapse in={botConfig.training_autodrink_enabled} animateOpacity>
                     <FormControl>
                       <FormLabel color="gray.300" fontWeight="medium" fontSize="sm">
-                        Ziel-Promille (2.0 - 3.0‰)
+                        Ziel-Promille (2.0 - 4.0‰)
                       </FormLabel>
                       <HStack spacing={2}>
                         <Input

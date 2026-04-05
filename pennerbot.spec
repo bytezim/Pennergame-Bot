@@ -14,8 +14,7 @@ datas = [
     ('server.py', '.'),  # Server module (needed for direct import in bundle mode)
     ('gui_launcher.py', '.'),  # GUI launcher module
     ('web/serve.py', 'web'),  # Web server module
-    ('README.md', '.'),  # Documentation
-    ('LICENSE', '.'),  # License file
+
 ] + collect_data_files('tkinter')
 
 # Collect all hidden imports (modules loaded dynamically)
@@ -144,5 +143,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='web/public/favicon.ico',  # Add icon if you have one
+    icon='web/dist/favicon.ico',
 )
