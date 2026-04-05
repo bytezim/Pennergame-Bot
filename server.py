@@ -2,6 +2,7 @@
 
 import asyncio
 import atexit
+import json
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from src.cache import app_cache, cached, get_cache_stats, invalidate_cache_pattern
-from src.constants import BOTTLE_JOB_ID, CORS_ALLOWED_ORIGINS, TRAINING_JOB_ID
+from src.constants import BOTTLE_JOB_ID, CORS_ALLOWED_ORIGINS, TRAINING_JOB_ID, ACTIVITY_MONITOR_JOB_ID
 from src.core import PennerBot
 from src.db import close_db_connection, get_session
 from src.error_handlers import register_error_handlers
@@ -52,8 +53,35 @@ async def lifespan(app: FastAPI):
         # Best-effort - don't crash the app on migration issues
         pass
 
+    # Initialize bot immediately on startup (not lazy)
+    try:
+        get_bot()
+        logger.info("🚀 Bot initialized on startup")
+    except Exception as e:
+        logger.warning(f"Bot initialization deferred: {e}")
+
+    # Start scheduler and manage jobs on startup
+    try:
+        logger.info("🚀 Starting scheduler...")
+        start_scheduler()
+        logger.info(f"✅ Scheduler started: {scheduler.running}")
+        
+        # Get current bot config
+        config = get_bot_config()
+        
+        # Manage scheduler jobs based on current config
+        manage_scheduler_jobs(config)
+        
+        logger.info("✅ Startup initialization completed")
+    except Exception as e:
+        logger.error(f"Scheduler startup failed: {e}")
+
     yield
-    # Shutdown: close database connection properly
+    # Shutdown: Scheduler sauber beenden und Datenbank schließen
+    logger.info("🔄 Shutting down scheduler...")
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("✅ Scheduler stopped")
     close_db_connection()
 
 
@@ -126,6 +154,8 @@ async def performance_tracking_middleware(request: Request, call_next):
         response = await call_next(request)
 
     return response
+
+
 
 
 bot = None
@@ -270,7 +300,7 @@ def _bot_collect_bottles_task():
         try:
             activities = get_bot().get_activities_data(use_cache=False)  # Frische Daten
             bottles_status = activities.get("bottles", {})
-            if bottles_status.get("running", False):
+            if bottles_status.get("collecting", False):
                 seconds_remaining = bottles_status.get("seconds_remaining", 0)
                 if seconds_remaining > 0:
                     minutes_remaining = seconds_remaining // 60
@@ -321,7 +351,7 @@ def _schedule_next_bottles_task():
     try:
         activities = get_bot().get_activities_data(use_cache=True)
         bottles_status = activities.get("bottles", {})
-        collecting = bottles_status.get("running", False)
+        collecting = bottles_status.get("collecting", False)
         actual_seconds_remaining = bottles_status.get("seconds_remaining", 0)
         
         if collecting and actual_seconds_remaining > 0:
@@ -333,8 +363,8 @@ def _schedule_next_bottles_task():
         get_bot().log(f"Error getting bottle timer: {e}, using configured duration")
         actual_seconds_remaining = 0
 
-    variation = random.uniform(0.8, 1.2)
-    actual_pause_seconds = int(pause_minutes * 60 * variation)
+    # Berechne Pause ohne Variation (fixe Wartezeit)
+    actual_pause_seconds = int(pause_minutes * 60)
 
     total_wait = actual_seconds_remaining + actual_pause_seconds
 
@@ -478,6 +508,60 @@ def _bot_training_task():
         traceback.print_exc()
 
 
+def _bot_activity_monitor_task():
+    """
+    Task: Überprüfe ob gestartete Aktivitäten noch laufen.
+    Erkennt manuell abgebrochene Aktivitäten und markiert sie für Neustart.
+    """
+    try:
+        current_bot = get_bot()
+        
+        if not current_bot.is_logged_in(skip_log=True):
+            return
+            
+        # Import get_session locally to fix UnboundLocalError
+        from src.db import get_session
+        
+        with get_session() as s:
+            from src.models import BotConfig
+            config = s.query(BotConfig).first()
+            if not config or not config.is_running:
+                return
+            bottles_enabled = config.bottles_enabled
+            training_enabled = config.training_enabled
+            bottles_duration = config.bottles_duration_minutes
+
+        result = current_bot.check_interrupted_activities()
+        
+        if result.get("interrupted"):
+            for activity_type in result["interrupted"]:
+                current_bot.log(f"[MONITOR] Detected interrupted {activity_type} - will restart on next cycle")
+                
+                if activity_type == "bottles" and bottles_enabled:
+                    current_bot.log("[MONITOR] Restarting interrupted bottle collection...")
+                    from src.tasks import search_bottles
+                    res = search_bottles(current_bot, bottles_duration)
+                    if res.get("success"):
+                        current_bot.log(f"Restarted bottle collection: {res.get('message', '')}")
+                elif activity_type == "skill" and training_enabled:
+                    from src.db import get_session
+                    from src.models import BotActivity
+                    with get_session() as s:
+                        activity = s.query(BotActivity).filter_by(activity_type="skill", was_interrupted=True).first()
+                        if activity and activity.activity_subtype:
+                            subtype = activity.activity_subtype
+                            current_bot.log(f"[MONITOR] Restarting interrupted skill training: {subtype}")
+                            res = current_bot.start_skill(subtype)
+                            if res.get("success"):
+                                current_bot.log(f"Restarted skill training: {res.get('message', '')}")
+                                activity.was_interrupted = False
+                                
+    except Exception as e:
+        get_bot().log(f"Activity monitor error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def manage_scheduler_jobs(config):
     """
     Verwalte Scheduler-Jobs basierend auf der aktuellen Bot-Konfiguration.
@@ -488,11 +572,14 @@ def manage_scheduler_jobs(config):
     current_bot = get_bot()
     now = datetime.now().astimezone()
 
+    current_bot.log(f"[DEBUG] manage_scheduler_jobs: is_running={config['is_running']}, training={config['training_enabled']}, bottles={config['bottles_enabled']}")
+
     # === Pfandflaschen sammeln ===
     if config["bottles_enabled"] and config["is_running"]:
         bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
+        current_bot.log(f"[DEBUG] Bottle job exists: {bottle_job is not None}")
         if not bottle_job:
-            # Kein Job existiert - plane ersten
+            # Kein Job existiert - plane ersten (auch wenn Bottles bereits laufen)
             current_bot.log("Plane ersten Bottle-Job...")
             run_date = now + timedelta(seconds=10)  # Sofort starten
             scheduler.add_job(
@@ -504,6 +591,7 @@ def manage_scheduler_jobs(config):
                 max_instances=1,
                 replace_existing=True,
             )
+            current_bot.log("[SCHEDULER] Bottle-Job geplant in 10s")
     else:
         # Deaktiviert oder Bot nicht running - entferne Job
         bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
@@ -514,8 +602,10 @@ def manage_scheduler_jobs(config):
     # === Weiterbildungen ===
     if config["training_enabled"] and config["is_running"]:
         training_job = scheduler.get_job(TRAINING_JOB_ID)
-        if not training_job:
-            # Kein Job existiert - plane ersten
+        reschedule_job = scheduler.get_job(f"{TRAINING_JOB_ID}-reschedule")
+        current_bot.log(f"[DEBUG] Training job exists: {training_job is not None}, reschedule: {reschedule_job is not None}")
+        if not training_job or not reschedule_job:
+            # Kein Job existiert - plane ersten (auch wenn Training bereits läuft)
             current_bot.log("Plane ersten Training-Job...")
             run_date = now + timedelta(seconds=15)
             scheduler.add_job(
@@ -536,6 +626,7 @@ def manage_scheduler_jobs(config):
                 max_instances=1,
                 replace_existing=True,
             )
+            current_bot.log("[SCHEDULER] Training-Job geplant in 15s + Reschedule in 25s")
     else:
         # Deaktiviert oder Bot nicht running - entferne Jobs
         for job_id in [TRAINING_JOB_ID, f"{TRAINING_JOB_ID}-reschedule"]:
@@ -544,6 +635,31 @@ def manage_scheduler_jobs(config):
                 job.remove()
         if not config["training_enabled"]:
             current_bot.log("Training-Jobs entfernt (deaktiviert)")
+
+    # === Activity Monitor (periodische Überprüfung) ===
+    if config["is_running"]:
+        monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
+        if not monitor_job:
+            scheduler.add_job(
+                _bot_activity_monitor_task,
+                trigger="interval",
+                seconds=60,
+                id=ACTIVITY_MONITOR_JOB_ID,
+                coalesce=True,
+                max_instances=1,
+                replace_existing=True,
+                misfire_grace_time=30,
+                executor="monitor",
+            )
+            current_bot.log("[MONITOR] Activity monitor job scheduled (every 120s)")
+        else:
+            # Job existiert bereits - nichts zu tun
+            pass
+    else:
+        monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
+        if monitor_job:
+            monitor_job.remove()
+            current_bot.log("[MONITOR] Activity monitor job removed")
 
 
 def _schedule_next_training_task(skip_training: bool = False):
@@ -577,8 +693,8 @@ def _schedule_next_training_task(skip_training: bool = False):
             actual_seconds_remaining = 0
 
     # Zufällige Variation (+/- 20%)
-    variation = random.uniform(PAUSE_VARIATION_MIN, PAUSE_VARIATION_MAX)
-    actual_pause_seconds = int(pause_minutes * 60 * variation)
+    # Berechne Pause ohne Variation (fixe Wartezeit)
+    actual_pause_seconds = int(pause_minutes * 60)
 
     # Gesamtzeit
     total_wait = actual_seconds_remaining + actual_pause_seconds
@@ -711,13 +827,8 @@ def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
 
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
-    """Health check endpoint."""
-    current_bot = get_bot()
-    return {
-        "ok": True,
-        "version": "0.2.0",
-        "bot_logged_in": bool(getattr(current_bot, "logged_in", False)),
-    }
+    """Health check - responds quickly without DB queries."""
+    return {"ok": True, "version": "0.2.0"}
 
 
 @app.get("/api/metrics/performance")
@@ -1614,7 +1725,7 @@ def bot_start() -> Dict[str, Any]:
             try:
                 activities = current_bot.get_activities_data(use_cache=False)
                 bottles_status = activities.get("bottles", {})
-                if not bottles_status.get("running", False):
+                if not bottles_status.get("collecting", False):
                     current_bot.log("[START] Bottle collecting not running, starting now...")
                     from src.tasks import search_bottles
                     duration = config["bottles_duration_minutes"]
@@ -1625,6 +1736,36 @@ def bot_start() -> Dict[str, Any]:
                         current_bot.log(f"Failed to start bottle collection: {result.get('message', '')}")
             except Exception as e:
                 current_bot.log(f"Could not check/start bottle collection: {e}")
+
+# Start training if enabled
+        if config["training_enabled"]:
+            if not current_bot.skill_running:
+                current_bot.log("[START] Training not running, starting now...")
+                
+                autodrink = config.get("training_autodrink_enabled", False)
+                target = config.get("training_target_promille", 2.5)
+                
+                if autodrink:
+                    current_bot.log(f"Auto-Trinken aktiviert (Ziel: {target:.2f}‰)")
+                    from src.tasks import auto_drink_before_training
+                    drink_res = auto_drink_before_training(current_bot, float(target))
+                    current_bot.log(f"Auto-Trinken: {drink_res.get('message', '')} - Aktuell: {drink_res.get('current_promille', 0):.2f}‰")
+                
+                from src.tasks import start_training
+                try:
+                    training_skills = json.loads(config["training_skills"])
+                except (json.JSONDecodeError, TypeError):
+                    training_skills = ["att"]
+                skill_type = training_skills[0] if training_skills and isinstance(training_skills, list) else "att"
+                result = start_training(current_bot, skill_type)
+                if result.get("success"):
+                    current_bot.log(f"Started training: {result.get('message', '')}")
+                    if autodrink:
+                        current_bot.log("Ausnüchtern mit Essen...")
+                        sober = current_bot.sober_up_with_food(target_promille=0.0)
+                        current_bot.log(f"Auto-Essen: {sober.get('message', '')} - Promille: {sober.get('current_promille', 0):.2f}‰")
+                else:
+                    current_bot.log(f"Failed to start training: {result.get('message', '')}")
 
         return {"running": True, "config": get_bot_config()}
     except Exception as e:
@@ -1645,8 +1786,8 @@ def bot_stop() -> Dict[str, Any]:
         # Update Status - Jobs werden automatisch vom Scheduler entfernt
         update_bot_config(is_running=False, last_stopped=datetime.now())
 
-        # Entferne alle Bot-Jobs
-        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID]:
+        # Entferne alle Bot-Jobs (einschließlich Monitor)
+        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID, ACTIVITY_MONITOR_JOB_ID, f"{TRAINING_JOB_ID}-reschedule"]:
             job = scheduler.get_job(job_id)
             if job:
                 job.remove()

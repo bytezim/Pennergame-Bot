@@ -348,10 +348,10 @@ function Start-Development {
         Write-ColoredOutput "Virtual environment not found! Run '.\manage.ps1 setup' first." "Red"
         exit 1
     }
-    $backendCmd = "cd '$PWD'; Write-Host 'Starting Backend...' -ForegroundColor Green; & '$VENV_PYTHON' -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd
-    Start-Sleep -Seconds 2
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD\web'; Write-Host 'Starting Frontend...' -ForegroundColor Green; npm run dev"
+    Write-ColoredOutput "Starting Backend..." "Green"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD'; & '$VENV_PYTHON' -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload"
+    Write-ColoredOutput "Starting Frontend..." "Green"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD\web'; npm run dev"
     Write-ColoredOutput "Development environment started!" "Green"
     Write-ColoredOutput "Backend: http://127.0.0.1:8000" "Yellow"
     Write-ColoredOutput "Frontend: http://localhost:1420" "Yellow"

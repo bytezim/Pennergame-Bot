@@ -590,7 +590,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Kein checkSkillsStatus() - SSE updated automatisch
+        await checkSkillsStatus();
         if (onRefresh) {
           await onRefresh();
         }

@@ -130,7 +130,7 @@ export const SettingsPage = () => {
             training_agi_max_level: data.config.training_agi_max_level ?? 999,
             training_pause_minutes: data.config.training_pause_minutes ?? 1,
             training_autodrink_enabled: data.config.training_autodrink_enabled ?? false,
-            training_target_promille: data.config.training_target_promille ?? 2.5,
+            training_target_promille: data.config.training_target_promille ?? 3.5,
           });
         }
       }
@@ -575,14 +575,14 @@ export const SettingsPage = () => {
                           step="0.1"
                           value={botConfig.training_target_promille}
                           onChange={(e) => {
-                            const value = parseFloat(e.target.value) || 2.5;
+                            const value = parseFloat(e.target.value) || 3.5;
                             setBotConfig({ 
                               ...botConfig, 
-                              training_target_promille: Math.max(2.0, Math.min(3.0, value))
+                              training_target_promille: Math.max(2.0, Math.min(4.0, value))
                             });
                           }}
                           min={2.0}
-                          max={3.0}
+                          max={4.0}
                           size="md"
                           bg="gray.700"
                           border="1px solid"

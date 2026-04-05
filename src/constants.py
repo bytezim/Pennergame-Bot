@@ -112,6 +112,7 @@ DEFAULT_USER_AGENT: Final[str] = (
 # IDs used for scheduled jobs (APScheduler job ids)
 BOTTLE_JOB_ID: Final[str] = "bottle_collection_job"
 TRAINING_JOB_ID: Final[str] = "training_task_job"
+ACTIVITY_MONITOR_JOB_ID: Final[str] = "activity_monitor_job"
 
 
 # ===========================

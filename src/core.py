@@ -15,6 +15,7 @@ from .constants import (
     CACHE_TTL_STATUS,
     DEFAULT_USER_AGENT,
 )
+from typing import Optional
 from .db import get_session
 from .logging_config import get_logger
 from .models import BotActivity, Cookie, Log, Penner, Plunder, Settings
@@ -25,6 +26,18 @@ logger = get_logger(__name__)
 
 class PennerBot:
     """Main bot class for Pennergame automation."""
+
+    def _load_user_agent(self) -> Optional[str]:
+        """Load user agent from database settings"""
+        try:
+            with get_session() as s:
+                setting = s.query(Settings).filter_by(key="user_agent").first()
+                if setting and setting.value:
+                    from .validation import validate_user_agent
+                    return validate_user_agent(setting.value)
+        except Exception as e:
+            self.log(f"[WARN] Failed to load user agent: {e}")
+        return None
 
     def __init__(self) -> None:
         logger.info("PennerBot initializing...")
@@ -49,6 +62,11 @@ class PennerBot:
         self._status_cache_time: Optional[datetime] = None
         self._status_cache_ttl = CACHE_TTL_STATUS
 
+        # Cache city information
+        self._city_cache: Optional[str] = None
+        self._city_cache_time: Optional[datetime] = None
+        self._city_cache_ttl = 300  # 5 minutes
+
         self.skill_running = False
         self.skill_seconds_remaining: Optional[int] = None
         self.fight_running = False
@@ -60,39 +78,35 @@ class PennerBot:
         self._login_status_cache = False
         self._login_cache_ttl = CACHE_TTL_LOGIN
 
-        try:
-            self.logged_in = self.is_logged_in()
-        except Exception as e:
-            logger.error(f"Login check failed during init: {e}", exc_info=True)
-            self.logged_in = False
-
-        try:
-            self.log("[OK] Bot initialized successfully")
-            
-            # Restore activity states from database after successful initialization
-            self.log("[SYNC] Restoring previous activity states...")
-            self._load_activity_states()
-            
-            # Try to resume interrupted workflows
-            self._restore_interrupted_workflows()
-            
-        except Exception as e:
-            logger.error(f"DB log failed during init: {e}")
-
     def _load_user_agent(self) -> Optional[str]:
+        """Load user agent from database settings"""
         try:
             with get_session() as s:
                 setting = s.query(Settings).filter_by(key="user_agent").first()
                 if setting and setting.value:
-                    logger.info(f"Loaded user agent: {setting.value[:50]}...")
-                    return setting.value
+                    from .validation import validate_user_agent
+                    return validate_user_agent(setting.value)
         except Exception as e:
-            logger.warning(f"Failed to load user agent from settings: {e}")
+            self.log(f"[WARN] Failed to load user agent: {e}")
         return None
 
     def _load_city(self) -> str:
-        """Lade die ausgewählte Stadt aus der Datenbank"""
-        return self.get_city()
+        """Lade die ausgewählte Stadt aus der Datenbank mit Caching"""
+        now = datetime.now()
+        if self._city_cache and self._city_cache_time:
+            age = (now - self._city_cache_time).total_seconds()
+            if age < self._city_cache_ttl:
+                return self._city_cache
+
+        city = self.get_city()
+        self._city_cache = city
+        self._city_cache_time = now
+        return city
+
+    def _invalidate_city_cache(self):
+        """Invalidiere den Stadt-Cache"""
+        self._city_cache = None
+        self._city_cache_time = None
 
     def get_current_base_url(self) -> str:
         """Hole die aktuelle Base URL basierend auf der ausgewählten Stadt"""
@@ -769,7 +783,7 @@ class PennerBot:
             traceback.print_exc()
 
     def save_city(self, city: str) -> bool:
-        """Speichere die ausgewählte Stadt in der Datenbank"""
+        """Speichere die ausgewählte Stadt in der Datenbank und invalidiere Cache"""
         if city not in CITIES:
             logger.error(f"Invalid city: {city}")
             return False
@@ -784,25 +798,39 @@ class PennerBot:
                     s.add(setting)
                 s.commit()
                 logger.info(f"Saved city: {city}")
+                
+                # Invalidate city cache
+                self._invalidate_city_cache()
+                
                 return True
         except Exception as e:
             logger.error(f"Failed to save city: {e}")
             return False
 
     def get_city(self) -> str:
-        """Lade die ausgewählte Stadt aus der Datenbank"""
+        """Lade die ausgewählte Stadt aus der Datenbank mit Caching"""
+        now = datetime.now()
+        if self._city_cache and self._city_cache_time:
+            age = (now - self._city_cache_time).total_seconds()
+            if age < self._city_cache_ttl:
+                return self._city_cache
+
         try:
             with get_session() as s:
                 setting = s.query(Settings).filter_by(key="city").first()
                 if setting and setting.value and setting.value in CITIES:
                     logger.info(f"Loaded city: {setting.value}")
-                    return setting.value
+                    city = setting.value
+                else:
+                    city = DEFAULT_CITY
         except Exception as e:
             logger.warning(f"Failed to load city from settings: {e}")
+            city = DEFAULT_CITY
         
-        # Fallback to default city
-        logger.info(f"Using default city: {DEFAULT_CITY}")
-        return DEFAULT_CITY
+        # Cache the result
+        self._city_cache = city
+        self._city_cache_time = now
+        return city
 
     def log(self, msg: str):
         """
@@ -1392,32 +1420,37 @@ class PennerBot:
                 if food_count <= 0:
                     continue
 
-                # Berechne wie viele wir brauchen
+                # Berechne exakte benötigte Anzahl
                 remaining_reduction = current_promille - target_promille
-                # effect ist negativ, also abs()
-                amount_needed = int(abs(remaining_reduction / food_effect)) + 1
+                # effect ist negativ, also abs() für positive Division
+                # Aufrunden um sicherzustellen dass wir unter target_promille kommen
+                import math
+                amount_needed = math.ceil(remaining_reduction / abs(food_effect))
                 amount_to_eat = min(amount_needed, food_count)
 
-                # Prüfe ob es Sinn macht
+                # Prüfe ob es Sinn macht (mindestens 1 Stück essen)
+                if amount_to_eat < 1:
+                    continue
+
                 total_effect = food_effect * amount_to_eat  # Negativ
-                if abs(total_effect) > 0.01:  # Mindestens 0.01‰ Wirkung
+                
+                self.log(
+                    f"🍽️ Esse {amount_to_eat}x {food_name} (je {food_effect}‰)"
+                )
+
+                result = self.eat_food(
+                    food_name, food_id, food_promille, amount_to_eat
+                )
+
+                if result.get("success"):
+                    current_promille = result.get("new_promille", current_promille)
+                    total_ate = True
+                    food_consumed.append(
+                        f"{amount_to_eat}x {food_name} ({total_effect:.2f}‰)"
+                    )
                     self.log(
-                        f"🍽️ Esse {amount_to_eat}x {food_name} (je {food_effect}‰)"
+                        f"{food_name} gegessen: Jetzt bei {current_promille:.2f}‰"
                     )
-
-                    result = self.eat_food(
-                        food_name, food_id, food_promille, amount_to_eat
-                    )
-
-                    if result.get("success"):
-                        current_promille = result.get("new_promille", current_promille)
-                        total_ate = True
-                        food_consumed.append(
-                            f"{amount_to_eat}x {food_name} ({total_effect:.2f}‰)"
-                        )
-                        self.log(
-                            f"{food_name} gegessen: Jetzt bei {current_promille:.2f}‰"
-                        )
 
             # Ergebnis
             if total_ate:
@@ -1444,7 +1477,7 @@ class PennerBot:
             self.log(f"[FAIL] Failed to sober up with food: {e}")
             return {"success": False, "error": str(e), "ate": False}
 
-    def _save_activity_state(self, activity_type: str, is_running: bool, seconds_remaining: Optional[int] = None, activity_subtype: str = None, additional_data: Dict[str, Any] = None):
+    def _save_activity_state(self, activity_type: str, is_running: bool, seconds_remaining: Optional[int] = None, activity_subtype: Optional[str] = None, additional_data: Optional[Dict[str, Any]] = None):
         """
         Speichere den aktuellen Zustand einer Aktivität in der Datenbank
         
@@ -1612,21 +1645,24 @@ class PennerBot:
                     if not self.skill_running and self._restored_skill_running:
                         self._save_activity_state("skill", False, 0, self._restored_skill_subtype)
                         # Mark as interrupted for potential restart
-                        existing = s.query(BotActivity).filter_by(activity_type="skill").first()
-                        if existing:
-                            existing.was_interrupted = True
+                        with get_session() as s:
+                            existing = s.query(BotActivity).filter_by(activity_type="skill").first()
+                            if existing:
+                                existing.was_interrupted = True
                         self.log("[RESTORE] Skill was interrupted - marked for restart")
                     if not self.fight_running and self._restored_fight_running:
                         self._save_activity_state("fight", False, 0)
-                        existing = s.query(BotActivity).filter_by(activity_type="fight").first()
-                        if existing:
-                            existing.was_interrupted = True
+                        with get_session() as s:
+                            existing = s.query(BotActivity).filter_by(activity_type="fight").first()
+                            if existing:
+                                existing.was_interrupted = True
                         self.log("[RESTORE] Fight was interrupted - marked for restart")
                     if not self.bottles_running and self._restored_bottles_running:
                         self._save_activity_state("bottles", False, 0)
-                        existing = s.query(BotActivity).filter_by(activity_type="bottles").first()
-                        if existing:
-                            existing.was_interrupted = True
+                        with get_session() as s:
+                            existing = s.query(BotActivity).filter_by(activity_type="bottles").first()
+                            if existing:
+                                existing.was_interrupted = True
                         self.log("[RESTORE] Bottle collecting was interrupted - marked for restart")
 
                     # Log current activity status after verification
@@ -1688,16 +1724,87 @@ class PennerBot:
                 # Starte Weiterbildung falls aktiviert und nicht bereits läuft
                 if config.training_enabled and not self.skill_running:
                     self.log("[AUTO] Starting training...")
+                    # Auto-Trinken vor Weiterbildung falls aktiviert
+                    autodrink_enabled = getattr(config, 'training_autodrink_enabled', False)
+                    target_promille = getattr(config, 'training_target_promille', 2.5)
+                    if autodrink_enabled:
+                        self.log(f"[AUTO] Auto-Trinken aktiviert (Ziel: {target_promille:.1f}‰)...")
+                        from .tasks import auto_drink_before_training
+                        drink_result = auto_drink_before_training(self, target_promille=target_promille)
+                        if drink_result.get("drank"):
+                            self.log(f"[AUTO] Auto-drink completed: {drink_result.get('message')}")
+                        elif drink_result.get("success"):
+                            self.log(f"[AUTO] Auto-drink: {drink_result.get('message')}")
+                    
                     from .tasks import start_training
                     # Starte Angriff als Default, könnte konfigurierbar gemacht werden
                     result = start_training(self, skill_type="att")
                     if result.get("success"):
                         self.log("[AUTO] Training started successfully")
+                        # Nach erfolgreichem Training-Start: Ausnüchtern mit Essen
+                        if autodrink_enabled:
+                            self.log("[AUTO] Auto-Essen aktiviert - nüchtere aus...")
+                            try:
+                                sober_result = self.sober_up_with_food(target_promille=0.0)
+                                if sober_result.get("ate"):
+                                    self.log(f"[AUTO] Auto-Essen: {sober_result.get('message')}")
+                                else:
+                                    self.log(f"[AUTO] Auto-Essen: {sober_result.get('message')}")
+                            except Exception as e:
+                                self.log(f"[AUTO] Auto-Essen fehlgeschlagen: {e}")
                     else:
                         self.log(f"[AUTO] Failed to start training: {result.get('message')}")
 
         except Exception as e:
             self.log(f"[WARN] Failed to start enabled activities: {e}")
+
+    def check_interrupted_activities(self) -> Dict[str, Any]:
+        """
+        Prüfe periodisch ob gestartete Aktivitäten noch laufen.
+        Erkennt wenn Benutzer eine Aktion manuell im Spiel abgebrochen hat.
+        """
+        from .models import BotActivity
+
+        result = {
+            "checked": False,
+            "interrupted": [],
+        }
+
+        if not hasattr(self, 'logged_in') or not self.logged_in:
+            return result
+
+        result["checked"] = True
+
+        try:
+            with get_session() as s:
+                saved_activities = s.query(BotActivity).filter_by(is_running=True).all()
+
+                if not saved_activities:
+                    return result
+
+                if self.refresh_status(force=True):
+                    for activity in saved_activities:
+                        activity_type = activity.activity_type
+
+                        is_running_on_server = False
+                        if activity_type == "skill":
+                            is_running_on_server = self.skill_running
+                        elif activity_type == "fight":
+                            is_running_on_server = self.fight_running
+                        elif activity_type == "bottles":
+                            is_running_on_server = self.bottles_running
+
+                        if not is_running_on_server:
+                            activity.is_running = False
+                            activity.was_interrupted = True
+                            activity.seconds_remaining = 0
+                            result["interrupted"].append(activity_type)
+                            self.log(f"[CHECK] Activity {activity_type} was interrupted (manually canceled)")
+
+        except Exception as e:
+            self.log(f"[WARN] Failed to check interrupted activities: {e}")
+
+        return result
 
     def get_pending_activity_resume(self) -> Optional[Dict[str, Any]]:
         """
