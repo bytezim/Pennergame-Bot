@@ -36,8 +36,9 @@ jobs:
 
     - name: Install Wine and Dependencies
       run: |
+        sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo apt-get install -y wine64 winbind fonts-wine
+        sudo apt-get install -y wine wine32 winbind fonts-wine
 
     - name: Install Python Dependencies
       run: |
@@ -58,11 +59,11 @@ jobs:
       env:
         WINEDEBUG: fixme-all
         PYTHONOPTIMIZE: "1"
+        WINEPREFIX: $HOME/.wine
       run: |
-        export WINEPREFIX=$HOME/.wine
-        wineboot --init --backend=virtual || true
-        sleep 5
-        wine python -m PyInstaller pennerbot.spec --clean --noconfirm 2>&1 || true
+        wineboot --init -f
+        sleep 10
+        wine python -m PyInstaller pennerbot.spec --clean --noconfirm
 
     - name: Get Build Information
       id: info
