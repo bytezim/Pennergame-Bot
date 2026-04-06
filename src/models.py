@@ -26,6 +26,13 @@ class Log(Base):
     message = Column(String)
 
 
+class IndexLogTimestamp(Index, Base):
+    __tablename__ = 'idx_logs_timestamp'
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.now, index=True)
+    message = Column(String)
+
+
 class Cookie(Base):
     __tablename__ = "cookies"
     id = Column(Integer, primary_key=True)
@@ -91,72 +98,60 @@ class Settings(Base):
 
 
 class BottlePrice(Base):
-    """Speichert die Historie der Pfandflaschenpreise (letzte 24h)"""
-
     __tablename__ = "bottle_prices"
     __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
-    price_cents = Column(Integer, nullable=False)  # Preis in Cent (z.B. 21, 24, etc.)
+    price_cents = Column(Integer, nullable=False)
 
 
 class MoneyHistory(Base):
-    """Speichert die Historie des Geldbetrags (letzte 24h)"""
-
     __tablename__ = "money_history"
     __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
-    amount = Column(Float, nullable=False)  # Geldbetrag in Euro (z.B. 428200.98)
+    amount = Column(Float, nullable=False)
 
 
 class RankHistory(Base):
-    """Speichert die Historie des Rangs (letzte 24h)"""
-
     __tablename__ = "rank_history"
     __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
-    rank = Column(Integer, nullable=False)  # Rang (z.B. 42, 100, etc.)
+    rank = Column(Integer, nullable=False)
 
 
 class PointsHistory(Base):
-    """Speichert die Historie der Punkte (letzte 24h)"""
-
     __tablename__ = "points_history"
     __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
-    points = Column(Integer, nullable=False)  # Punkte (z.B. 15000, 20000, etc.)
+    points = Column(Integer, nullable=False)
 
 
 class BotActivity(Base):
-    """Trackt ongoing bot activities for state persistence and resumption after restart"""
-
     __tablename__ = "bot_activities"
     id = Column(Integer, primary_key=True)
-    activity_type = Column(String, nullable=False)  # 'skill', 'fight', 'bottles'
-    activity_subtype = Column(String, nullable=True)  # 'att', 'def', 'agi' for skills
+    activity_type = Column(String, nullable=False)
+    activity_subtype = Column(String, nullable=True)
     is_running = Column(Boolean, nullable=False, default=False)
     was_interrupted = Column(Boolean, default=False, nullable=False)
     start_time = Column(DateTime, nullable=True)
     expected_end_time = Column(DateTime, nullable=True)
     seconds_remaining = Column(Integer, nullable=True)
-    additional_data = Column(String, nullable=True)  # JSON for extra context
+    additional_data = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class ActivityQueue(Base):
-    """Dynamische Activity Queue für automatische Activity-Verarbeitung"""
-
     __tablename__ = "activity_queue"
     id = Column(Integer, primary_key=True)
-    activity_type = Column(String, nullable=False)  # 'bottles', 'skill', 'fight'
-    priority = Column(Integer, default=2)  # 1=LOW, 2=NORMAL, 3=HIGH, 4=CRITICAL
-    parallel = Column(Boolean, default=False)  # Kann parallel laufen
-    config = Column(String, nullable=True)  # JSON config
-    status = Column(String, default="pending")  # pending, queued, running, completed, failed
+    activity_type = Column(String, nullable=False)
+    priority = Column(Integer, default=2)
+    parallel = Column(Boolean, default=False)
+    config = Column(String, nullable=True)
+    status = Column(String, default="pending")
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
     error_message = Column(String, nullable=True)
@@ -167,57 +162,21 @@ class ActivityQueue(Base):
 
 
 class BotConfig(Base):
-    """Bot-Konfiguration für 24/7 Betrieb"""
-
     __tablename__ = "bot_config"
     id = Column(Integer, primary_key=True)
-
-    # Bot Status
     is_running = Column(Boolean, default=False, nullable=False)
     last_started = Column(DateTime, nullable=True)
     last_stopped = Column(DateTime, nullable=True)
-
-    # Pfandflaschen-Sammeln Konfiguration
-    # Valid times: 10, 30, 60, 180, 360, 540, 720 minutes
     bottles_enabled = Column(Boolean, default=BOTTLE_ENABLED_DEFAULT, nullable=False)
-    bottles_duration_minutes = Column(
-        Integer, default=DEFAULT_BOTTLE_DURATION, nullable=False
-    )  # Sammeldauer in Minuten (nur vordefinierte Werte erlaubt)
-    bottles_pause_minutes = Column(
-        Integer, default=DEFAULT_BOTTLE_PAUSE, nullable=False
-    )  # Pause zwischen Sammelaktionen
-
-    # Pfandflaschen Auto-Verkauf Konfiguration
+    bottles_duration_minutes = Column(Integer, default=DEFAULT_BOTTLE_DURATION, nullable=False)
+    bottles_pause_minutes = Column(Integer, default=DEFAULT_BOTTLE_PAUSE, nullable=False)
     bottles_autosell_enabled = Column(Boolean, default=AUTOSELL_ENABLED_DEFAULT, nullable=False)
-    bottles_min_price = Column(
-        Integer, default=DEFAULT_AUTOSELL_MIN_PRICE, nullable=False
-    )  # Mindestpreis in Cent (15-25)
-
-    # Weiterbildungen Konfiguration
+    bottles_min_price = Column(Integer, default=DEFAULT_AUTOSELL_MIN_PRICE, nullable=False)
     training_enabled = Column(Boolean, default=TRAINING_ENABLED_DEFAULT, nullable=False)
-    training_skills = Column(
-        String, default='["att", "def", "agi"]', nullable=False
-    )  # JSON-Array der aktiven Skills (z.B. ["att", "def"])
-    training_att_max_level = Column(
-        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
-    )  # Max Level für Angriff (999 = kein Limit)
-    training_def_max_level = Column(
-        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
-    )  # Max Level für Verteidigung (999 = kein Limit)
-    training_agi_max_level = Column(
-        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
-    )  # Max Level für Geschicklichkeit (999 = kein Limit)
-    training_pause_minutes = Column(
-        Integer, default=DEFAULT_TRAINING_PAUSE, nullable=False
-    )  # Pause zwischen Weiterbildungen
-
-    # Weiterbildungen Auto-Trinken Konfiguration
-    training_autodrink_enabled = Column(
-        Boolean, default=AUTODRINK_ENABLED_DEFAULT, nullable=False
-    )  # Automatisch vor Training trinken
-    training_target_promille = Column(
-        Float, default=3.5, nullable=False
-    )  # Ziel-Promillewert (2.0-4.0)
-
-    # Nächste geplante Ausführungszeiten werden vom Scheduler (APScheduler SQLAlchemyJobStore) verwaltet
-    # Daher keine redundanten next_run Spalten hier - der Scheduler persistiert seine Jobs selbst
+    training_skills = Column(String, default='["att", "def", "agi"]', nullable=False)
+    training_att_max_level = Column(Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False)
+    training_def_max_level = Column(Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False)
+    training_agi_max_level = Column(Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False)
+    training_pause_minutes = Column(Integer, default=DEFAULT_TRAINING_PAUSE, nullable=False)
+    training_autodrink_enabled = Column(Boolean, default=AUTODRINK_ENABLED_DEFAULT, nullable=False)
+    training_target_promille = Column(Float, default=3.5, nullable=False)

@@ -9,22 +9,24 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: windows-2022
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
     - uses: actions/checkout@v4
-      name: Checkout Repository
 
-    - name: Set up Python 3.11.9
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11.9'
+        python-version: '3.11'
         cache: 'pip'
-        allow-prereleases: false
 
     - name: Set up Node.js 20
       uses: actions/setup-node@v4
@@ -35,10 +37,10 @@ jobs:
 
     - name: Install Python Dependencies
       run: |
-        python -m pip install --upgrade pip==24.0
-        pip install setuptools==70.0.0 wheel==0.43.0
+        python -m pip install --upgrade pip
+        pip install setuptools wheel
         pip install -e ".[dev]"
-        pip install pyinstaller==6.3.0 pyinstaller-hooks-contrib==2024.3
+        pip install pyinstaller pyinstaller-hooks-contrib
 
     - name: Install Frontend Dependencies
       working-directory: web
@@ -48,45 +50,29 @@ jobs:
       working-directory: web
       run: npm run build
 
-    - name: Fix PyInstaller Windows Bug
-      run: |
-        # Remove bootloader compilation to avoid issues
-        # $env:PYINSTALLER_COMPILE_BOOTLOADER = '1'
-        # $env:PYINSTALLER_BOOTLOADER_FAVOR = 'debug'
-        $env:PYTHONOPTIMIZE = '1'
-
     - name: Build EXE with PyInstaller
-      run: pyinstaller pennerbot.spec --clean --noconfirm
-
-    - name: Verify EXE
-      run: |
-        if (-not (Test-Path "dist/PennerBot.exe")) {
-          Write-Error "EXE wurde nicht erstellt!"
-          exit 1
-        }
-        $size = (Get-Item "dist/PennerBot.exe").Length
-        Write-Host "✅ EXE erstellt: $size Bytes"
+      run: python -m PyInstaller pennerbot.spec --clean --noconfirm
 
     - name: Get Build Information
       id: info
-      shell: powershell
       run: |
-        $commit = git rev-parse --short HEAD
-        $sha256 = (Get-FileHash dist/PennerBot.exe -Algorithm SHA256).Hash.ToLower()
-        $size = [math]::Round((Get-Item dist/PennerBot.exe).Length / 1MB, 2)
-        echo "commit=$commit" >> $env:GITHUB_OUTPUT
-        echo "sha256=$sha256" >> $env:GITHUB_OUTPUT
-        echo "size=$size MB" >> $env:GITHUB_OUTPUT
+        commit=$(git rev-parse --short HEAD)
+        sha256=$(sha256sum dist/PennerBot.exe | cut -d' ' -f1)
+        size=$(du -h dist/PennerBot.exe | cut -f1)
+        echo "commit=$commit" >> $GITHUB_OUTPUT
+        echo "sha256=$sha256" >> $GITHUB_OUTPUT
+        echo "size=$size" >> $GITHUB_OUTPUT
 
     - name: Upload EXE
       uses: actions/upload-artifact@v4
       with:
         name: PennerBot
         path: dist/PennerBot.exe
-        compression-level: 0
-        overwrite: true
+        compression-level: 6
+        retention-days: 1
 
     - name: Update Latest Release
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         tag_name: latest

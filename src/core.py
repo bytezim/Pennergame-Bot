@@ -28,7 +28,6 @@ class PennerBot:
     """Main bot class for Pennergame automation."""
 
     def _load_user_agent(self) -> Optional[str]:
-        """Load user agent from database settings"""
         try:
             with get_session() as s:
                 setting = s.query(Settings).filter_by(key="user_agent").first()
@@ -62,10 +61,9 @@ class PennerBot:
         self._status_cache_time: Optional[datetime] = None
         self._status_cache_ttl = CACHE_TTL_STATUS
 
-        # Cache city information
         self._city_cache: Optional[str] = None
         self._city_cache_time: Optional[datetime] = None
-        self._city_cache_ttl = 300  # 5 minutes
+        self._city_cache_ttl = 300
 
         self.skill_running = False
         self.skill_seconds_remaining: Optional[int] = None
@@ -77,18 +75,6 @@ class PennerBot:
         self._last_login_check: Optional[datetime] = None
         self._login_status_cache = False
         self._login_cache_ttl = CACHE_TTL_LOGIN
-
-    def _load_user_agent(self) -> Optional[str]:
-        """Load user agent from database settings"""
-        try:
-            with get_session() as s:
-                setting = s.query(Settings).filter_by(key="user_agent").first()
-                if setting and setting.value:
-                    from .validation import validate_user_agent
-                    return validate_user_agent(setting.value)
-        except Exception as e:
-            self.log(f"[WARN] Failed to load user agent: {e}")
-        return None
 
     def _load_city(self) -> str:
         """Lade die ausgewählte Stadt aus der Datenbank mit Caching"""
@@ -104,12 +90,10 @@ class PennerBot:
         return city
 
     def _invalidate_city_cache(self):
-        """Invalidiere den Stadt-Cache"""
         self._city_cache = None
         self._city_cache_time = None
 
     def get_current_base_url(self) -> str:
-        """Hole die aktuelle Base URL basierend auf der ausgewählten Stadt"""
         city = self._load_city()
         return CITIES[city]
 
@@ -195,15 +179,8 @@ class PennerBot:
                 return False
 
     def _update_activity_status(self, counters: dict):
-        """
-        Aktualisiert den Bot-Status basierend auf den Header-Countern
-
-        Args:
-            counters: Dict mit skill_seconds, fight_seconds, bottle_seconds
-        """
         status_changed = False
 
-        # Weiterbildung
         skill_secs = counters.get("skill_seconds")
         if skill_secs is not None and skill_secs > 0:
             if not self.skill_running:
@@ -211,13 +188,11 @@ class PennerBot:
                 status_changed = True
                 try:
                     from .events import emit_activity_started
-
                     emit_activity_started("skill", skill_secs)
                 except Exception:
                     pass
             self.skill_running = True
             self.skill_seconds_remaining = skill_secs
-            # Detect and persist skill subtype
             skill_subtype = self._detect_skill_subtype()
             self._save_activity_state("skill", True, skill_secs, skill_subtype)
         else:
@@ -226,16 +201,13 @@ class PennerBot:
                 status_changed = True
                 try:
                     from .events import emit_activity_completed
-
                     emit_activity_completed("skill")
                 except Exception:
                     pass
             self.skill_running = False
             self.skill_seconds_remaining = None
-            # Persist state change (subtype will be cleaned up automatically)
             self._save_activity_state("skill", False, 0)
 
-        # Kämpfe
         fight_secs = counters.get("fight_seconds")
         if fight_secs is not None and fight_secs > 0:
             if not self.fight_running:
@@ -243,13 +215,11 @@ class PennerBot:
                 status_changed = True
                 try:
                     from .events import emit_activity_started
-
                     emit_activity_started("fight", fight_secs)
                 except Exception:
                     pass
             self.fight_running = True
             self.fight_seconds_remaining = fight_secs
-            # Persist state change
             self._save_activity_state("fight", True, fight_secs)
         else:
             if self.fight_running:
@@ -257,16 +227,13 @@ class PennerBot:
                 status_changed = True
                 try:
                     from .events import emit_activity_completed
-
                     emit_activity_completed("fight")
                 except Exception:
                     pass
             self.fight_running = False
             self.fight_seconds_remaining = None
-            # Persist state change
             self._save_activity_state("fight", False, 0)
 
-        # Pfandflaschen sammeln
         bottle_secs = counters.get("bottle_seconds")
         if bottle_secs is not None and bottle_secs > 0:
             if not self.bottles_running:
@@ -274,13 +241,11 @@ class PennerBot:
                 status_changed = True
                 try:
                     from .events import emit_activity_started
-
                     emit_activity_started("bottles", bottle_secs)
                 except Exception:
                     pass
             self.bottles_running = True
             self.bottles_seconds_remaining = bottle_secs
-            # Persist state change
             self._save_activity_state("bottles", True, bottle_secs)
         else:
             if self.bottles_running:
@@ -288,20 +253,16 @@ class PennerBot:
                 status_changed = True
                 try:
                     from .events import emit_activity_completed
-
                     emit_activity_completed("bottles")
                 except Exception:
                     pass
             self.bottles_running = False
             self.bottles_seconds_remaining = None
-            # Persist state change
             self._save_activity_state("bottles", False, 0)
 
-        # Emit Status-Change Event wenn sich was geändert hat
         if status_changed:
             try:
                 from .events import emit_status_changed
-
                 emit_status_changed(
                     {
                         "skill_running": self.skill_running,
@@ -316,12 +277,11 @@ class PennerBot:
                 pass
 
     def _attempt_auto_relogin(self):
-        """Versucht automatisch mit gespeicherten Credentials neu einzuloggen"""
         try:
             from src.security import CredentialEncryption
-            
+
             self.log("[AUTO] Attempting auto re-login...")
-            
+
             with get_session() as s:
                 username_setting = s.query(Settings).filter_by(key="username").first()
                 password_setting = s.query(Settings).filter_by(key="password_encrypted").first()
@@ -336,12 +296,12 @@ class PennerBot:
 
                     self.log(f"[AUTO] Auto re-login for {username}...")
                     result = self.login(username, password)
-                    
+
                     if result:
                         self.log("[AUTO] Auto re-login successful")
                     else:
                         self.log("[AUTO] Auto re-login failed")
-                    
+
                     return result
                 else:
                     self.log("[AUTO] No saved credentials found for auto re-login")
@@ -353,20 +313,10 @@ class PennerBot:
             return False
 
     def refresh_status(self, force: bool = False):
-        """
-        Aktualisiere den Activity-Status von Pennergame
-
-        Args:
-            force: Wenn True, ignoriere Cache und hole frische Daten
-
-        Returns:
-            bool: True wenn erfolgreich aktualisiert
-        """
-        # Prüfe Cache-Alter
         if not force and self._status_cache_time is not None:
             age = (datetime.now() - self._status_cache_time).total_seconds()
             if age < self._status_cache_ttl:
-                return True  # Cache noch gültig
+                return True
 
         try:
             r = self.api_get(self.client, "/overview/")
@@ -374,19 +324,20 @@ class PennerBot:
             self._update_activity_status(counters)
             self._status_cache_time = datetime.now()
 
-            # Aktualisiere auch Penner-Daten
             try:
-                self.set_penner_data(r.text)
+                penner_data = parse_overview(r.text)
+                if penner_data.get("user_id"):
+                    self.set_penner_data(r.text)
+                else:
+                    self.log("[WARN] No penner data - possibly not logged in")
             except Exception as e:
                 self.log(f"[WARN] Failed to parse penner data: {e}")
 
-            # Speichere Bottle-Preis (nur bei Änderung)
             try:
                 self._save_bottle_price(r.text)
             except Exception as e:
                 self.log(f"[WARN] Failed to save bottle price: {e}")
 
-            # Speichere Geldbetrag (nur bei Änderung)
             try:
                 self._save_money(r.text)
             except Exception as e:
@@ -398,13 +349,8 @@ class PennerBot:
             return False
 
     def _trigger_auto_sell_check(self, current_price_cents: int):
-        """
-        Prüfe ob Auto-Sell aktiviert ist und führe bei Erfüllung direkt aus.
-        Wird aufgerufen wenn sich der Bottle Price ändert.
-        """
         from .models import BotConfig
 
-        # Hole Config
         with get_session() as s:
             config = s.query(BotConfig).first()
             if not config:
@@ -413,6 +359,10 @@ class PennerBot:
 
             if not config.is_running:
                 self.log("[WARN] Auto-Sell: Bot laeuft nicht (is_running=False)")
+                return
+
+            if not config.bottles_enabled:
+                self.log("[WARN] Auto-Sell: Pfandflaschen sammeln ist deaktiviert")
                 return
 
             if not config.bottles_autosell_enabled:
@@ -424,20 +374,16 @@ class PennerBot:
                 f"[SEARCH] Auto-Sell Check: Aktuell {current_price_cents} Cent, Schwelle {min_price} Cent"
             )
 
-        # Prüfe Preis-Bedingung
         if current_price_cents < min_price:
             self.log(
                 f"[SKIP] Auto-Sell: Preis zu niedrig ({current_price_cents} Cent < {min_price} Cent)"
             )
             return
 
-        # Prüfe ob Flaschen vorhanden - hole von /stock/bottle/
         try:
             from .parse import parse_bottle_count
-
             response = self.api_get(self.client, "/stock/bottle/")
             bottle_count = parse_bottle_count(response.text)
-
         except Exception as e:
             self.log(f"[WARN] Auto-Sell: Fehler beim Laden der Flaschen-Daten: {e}")
             return
@@ -448,15 +394,12 @@ class PennerBot:
             self.log("[SKIP] Auto-Sell: Keine Flaschen zum Verkaufen")
             return
 
-        # Bedingungen erfuellt! Fuehre Auto-Sell aus
         self.log(
             f"[TRIGGER] Auto-Sell Trigger: {bottle_count} Flaschen @ {current_price_cents} Cent (Schwelle: {min_price} Cent)"
         )
 
-        # Führe Verkauf direkt aus (nicht über Scheduler)
         try:
             from .tasks import sell_bottles
-
             result = sell_bottles(self, bottle_count)
 
             if result.get("success"):
@@ -467,64 +410,40 @@ class PennerBot:
             self.log(f"[FAIL] Auto-Sell Fehler: {e}")
 
     def _save_bottle_price(self, html: str):
-        """
-        Speichere den aktuellen Pfandflaschenpreis in der Datenbank.
-        Speichert nur, wenn sich der Preis geändert hat.
-        Hält Einträge der letzten 24 Stunden.
-        """
         from datetime import timedelta
-
         from .models import BottlePrice
         from .parse import parse_bottle_price
 
         current_price = parse_bottle_price(html)
         if current_price == 0:
-            return  # Kein gültiger Preis gefunden
+            return
 
         try:
             with get_session() as s:
-                # Hole letzten Eintrag
                 last_entry = s.query(BottlePrice).order_by(BottlePrice.id.desc()).first()
-
-                # Speichere nur wenn Preis sich geändert hat
                 if last_entry is None or last_entry.price_cents != current_price:
-                    # Prüfe ob letzter Eintrag sehr recent ist (< 2s) mit gleichem Wert
-                    # um doppelte Logs durch parallele Requests zu vermeiden
                     if last_entry and last_entry.price_cents == current_price:
-                        time_since_last = (
-                            datetime.now() - last_entry.timestamp
-                        ).total_seconds()
+                        time_since_last = (datetime.now() - last_entry.timestamp).total_seconds()
                         if time_since_last < 2:
-                            return  # Skip - bereits geloggt
-
+                            return
                     new_entry = BottlePrice(price_cents=current_price)
                     s.add(new_entry)
-                    # Context manager committed automatisch
 
-            # Cleanup in separater Session
             with get_session() as s:
                 cutoff_time = datetime.now() - timedelta(hours=24)
-                old_entries = (
-                    s.query(BottlePrice)
-                    .filter(BottlePrice.timestamp < cutoff_time)
-                    .all()
-                )
+                old_entries = s.query(BottlePrice).filter(BottlePrice.timestamp < cutoff_time).all()
                 if old_entries:
                     for entry in old_entries:
                         s.delete(entry)
-                    # Context manager committed automatisch
 
             self.log(f"[MONEY] Bottle price changed: {current_price} Cent")
 
-            # Emit Event
             try:
                 from .events import emit_bottle_price_changed
-
                 emit_bottle_price_changed(current_price)
             except Exception:
                 pass
 
-            # Trigger Auto-Sell Check bei Preis-Änderung
             try:
                 self._trigger_auto_sell_check(current_price)
             except Exception as e:
@@ -534,115 +453,67 @@ class PennerBot:
                 self.log(f"[WARN] Failed to save bottle price: {e}")
 
     def _save_money(self, html: str):
-        """
-        Speichere den aktuellen Geldbetrag in der Datenbank.
-        Speichert nur, wenn sich der Betrag geändert hat.
-        Hält Einträge der letzten 24 Stunden.
-        """
         from datetime import timedelta
-
         from .models import MoneyHistory
         from .parse import parse_money
 
         current_money = parse_money(html)
         if current_money == 0.0:
-            return  # Kein gültiger Betrag gefunden
+            return
 
         try:
             with get_session() as s:
-                # Hole letzten Eintrag
                 last_entry = s.query(MoneyHistory).order_by(MoneyHistory.id.desc()).first()
-
-                # Speichere nur wenn Betrag sich geändert hat
-                # Verwende Toleranz von 0.01€ um Rundungsfehler zu vermeiden
                 if last_entry is None or abs(last_entry.amount - current_money) > 0.01:
-                    # Prüfe ob letzter Eintrag sehr recent ist (< 2s) mit gleichem Wert
-                    # um doppelte Logs durch parallele Requests zu vermeiden
                     if last_entry and abs(last_entry.amount - current_money) <= 0.01:
-                        time_since_last = (
-                            datetime.now() - last_entry.timestamp
-                        ).total_seconds()
+                        time_since_last = (datetime.now() - last_entry.timestamp).total_seconds()
                         if time_since_last < 2:
-                            return  # Skip - bereits geloggt
-
+                            return
                     new_entry = MoneyHistory(amount=current_money)
                     s.add(new_entry)
-                    # WICHTIG: Kein s.commit() hier - der context manager macht das automatisch!
 
-                    # Lösche Einträge älter als 24 Stunden IN SEPARATER SESSION
-                    # um "transaction in progress" Fehler zu vermeiden
-            
-            # Cleanup in separater Session
             with get_session() as s:
                 cutoff_time = datetime.now() - timedelta(hours=24)
-                old_entries = (
-                    s.query(MoneyHistory)
-                    .filter(MoneyHistory.timestamp < cutoff_time)
-                    .all()
-                )
+                old_entries = s.query(MoneyHistory).filter(MoneyHistory.timestamp < cutoff_time).all()
                 if old_entries:
                     for entry in old_entries:
                         s.delete(entry)
-                    # Context manager committed automatisch
 
             self.log(f"[MONEY] Money changed: EUR {current_money:,.2f}")
 
-            # Emit Event
             try:
                 from .events import emit_money_changed
-
                 emit_money_changed(current_money)
             except Exception:
                 pass
         except Exception as e:
-            # Vermeide Logging wenn DB locked
             if "locked" not in str(e).lower():
                 self.log(f"[WARN] Failed to save money: {e}")
 
     def _save_rank(self, rank: int):
-        """
-        Speichere den aktuellen Rang in der Datenbank.
-        Speichert nur, wenn sich der Rang geändert hat.
-        Hält Einträge der letzten 24 Stunden.
-        """
         from datetime import timedelta
-
         from .models import RankHistory
 
         if rank <= 0:
-            return  # Ungültiger Rang
+            return
 
         try:
             with get_session() as s:
-                # Hole letzten Eintrag
                 last_entry = s.query(RankHistory).order_by(RankHistory.id.desc()).first()
-
-                # Speichere nur wenn Rang sich geändert hat
                 if last_entry is None or last_entry.rank != rank:
-                    # Prüfe ob letzter Eintrag sehr recent ist (< 2s) mit gleichem Wert
                     if last_entry and last_entry.rank == rank:
-                        time_since_last = (
-                            datetime.now() - last_entry.timestamp
-                        ).total_seconds()
+                        time_since_last = (datetime.now() - last_entry.timestamp).total_seconds()
                         if time_since_last < 2:
-                            return  # Skip - bereits geloggt
-
+                            return
                     new_entry = RankHistory(rank=rank)
                     s.add(new_entry)
-                    # Context manager committed automatisch
 
-            # Cleanup in separater Session
             with get_session() as s:
                 cutoff_time = datetime.now() - timedelta(hours=24)
-                old_entries = (
-                    s.query(RankHistory)
-                    .filter(RankHistory.timestamp < cutoff_time)
-                    .all()
-                )
+                old_entries = s.query(RankHistory).filter(RankHistory.timestamp < cutoff_time).all()
                 if old_entries:
                     for entry in old_entries:
                         s.delete(entry)
-                    # Context manager committed automatisch
 
             self.log(f"[RANK] Rank changed: {rank}")
         except Exception as e:
@@ -650,51 +521,29 @@ class PennerBot:
                 self.log(f"[WARN] Failed to save rank: {e}")
 
     def _save_points(self, points: int):
-        """
-        Speichere die aktuellen Punkte in der Datenbank.
-        Speichert nur, wenn sich die Punkte geändert haben.
-        Hält Einträge der letzten 24 Stunden.
-        """
         from datetime import timedelta
-
         from .models import PointsHistory
 
         if points < 0:
-            return  # Ungültige Punkte
+            return
 
         try:
             with get_session() as s:
-                # Hole letzten Eintrag
-                last_entry = (
-                    s.query(PointsHistory).order_by(PointsHistory.id.desc()).first()
-                )
-
-                # Speichere nur wenn Punkte sich geändert haben
+                last_entry = s.query(PointsHistory).order_by(PointsHistory.id.desc()).first()
                 if last_entry is None or last_entry.points != points:
-                    # Prüfe ob letzter Eintrag sehr recent ist (< 2s) mit gleichem Wert
                     if last_entry and last_entry.points == points:
-                        time_since_last = (
-                            datetime.now() - last_entry.timestamp
-                        ).total_seconds()
+                        time_since_last = (datetime.now() - last_entry.timestamp).total_seconds()
                         if time_since_last < 2:
-                            return  # Skip - bereits geloggt
-
+                            return
                     new_entry = PointsHistory(points=points)
                     s.add(new_entry)
-                    # Context manager committed automatisch
 
-            # Cleanup in separater Session
             with get_session() as s:
                 cutoff_time = datetime.now() - timedelta(hours=24)
-                old_entries = (
-                    s.query(PointsHistory)
-                    .filter(PointsHistory.timestamp < cutoff_time)
-                    .all()
-                )
+                old_entries = s.query(PointsHistory).filter(PointsHistory.timestamp < cutoff_time).all()
                 if old_entries:
                     for entry in old_entries:
                         s.delete(entry)
-                    # Context manager committed automatisch
 
             self.log(f"[PTS] Points changed: {points:,}")
         except Exception as e:
@@ -836,10 +685,10 @@ class PennerBot:
         """
         Log a message: store in DB, emit to UI, and print to console for GUI capture.
         """
-        # Print to console for GUI stdout capture
         print(msg)
 
-        # Store in DB and emit to UI
+        import random
+
         def _db_log():
             try:
                 from datetime import timedelta
@@ -847,21 +696,14 @@ class PennerBot:
                 with get_session() as s:
                     log_entry = Log(message=msg, timestamp=datetime.now())
                     s.add(log_entry)
-                    s.commit()
 
-                    # Delete logs older than 24 hours (every 50 logs)
-                    log_count = s.query(Log).count()
-                    if log_count % 50 == 0:
+                    if random.random() < 0.02:
+                        from sqlalchemy import delete
                         cutoff_time = datetime.now() - timedelta(hours=24)
-                        old_logs = s.query(Log).filter(Log.timestamp < cutoff_time).all()
-                        for old_log in old_logs:
-                            s.delete(old_log)
-                        if old_logs:
-                            s.commit()
+                        s.execute(delete(Log).where(Log.timestamp < cutoff_time))
             except Exception:
-                pass  # Silent fail
+                pass
 
-        # Emit Event for UI
         def _emit_event():
             try:
                 from .events import emit_log_added
@@ -869,7 +711,6 @@ class PennerBot:
             except Exception:
                 pass
 
-        # Run both in background threads - fire and forget
         threading.Thread(target=_db_log, daemon=True).start()
         threading.Thread(target=_emit_event, daemon=True).start()
 

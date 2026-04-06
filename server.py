@@ -8,6 +8,7 @@ import threading
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -114,8 +115,13 @@ async def lifespan(app: FastAPI):
 
     # Initialize bot immediately on startup (not lazy)
     try:
-        get_bot()
+        bot = get_bot()
         logger.info("🚀 Bot initialized on startup")
+        
+        # NICHT refresh_status hier aufrufen!
+        # Das passiert erst nach Auto-Login im Event-Handler
+        # Wir verwenden die gespeicherten Flags aus der DB (oder False wenn nicht eingeloggt)
+        logger.info("📊 Bot bereit - Status wird nach Login aktualisiert")
     except Exception as e:
         logger.warning(f"Bot initialization deferred: {e}")
 
@@ -128,7 +134,7 @@ async def lifespan(app: FastAPI):
         # Get current bot config
         config = get_bot_config()
 
-        # Manage scheduler jobs based on current config
+        # NOW manage scheduler jobs (flags are now accurate from refresh)
         manage_scheduler_jobs(config)
 
         # Start event handler thread for activity completion
@@ -236,9 +242,7 @@ def get_bot() -> PennerBot:
     return bot
 
 
-def _get_bot() -> PennerBot:
-    """Internal helper to get bot instance, alias for get_bot() for compatibility."""
-    return get_bot()
+
 
 
 def get_bot_config():
@@ -574,8 +578,9 @@ def _bot_training_task():
 
 def _bot_activity_monitor_task():
     """
-    Task: Überprüfe ob gestartete Aktivitäten noch laufen.
-    Erkennt manuell abgebrochene Aktivitäten und markiert sie für Neustart.
+    Task: Prüfe nur auf UNTERBROCHENE Activities.
+    Wird nur aktiv wenn Bot abstürzt/beendet wird während Activity läuft.
+    Der normale Zyklus wird von den Jobs selbst verwaltet.
     """
     try:
         current_bot = get_bot()
@@ -583,7 +588,6 @@ def _bot_activity_monitor_task():
         if not current_bot.is_logged_in(skip_log=True):
             return
             
-        # Import get_session locally to fix UnboundLocalError
         from src.db import get_session
         
         with get_session() as s:
@@ -595,18 +599,19 @@ def _bot_activity_monitor_task():
             training_enabled = config.training_enabled
             bottles_duration = config.bottles_duration_minutes
 
+        # Prüfe NUR auf unterbrochene Activities
         result = current_bot.check_interrupted_activities()
         
         if result.get("interrupted"):
             for activity_type in result["interrupted"]:
-                current_bot.log(f"[MONITOR] Detected interrupted {activity_type} - will restart on next cycle")
+                current_bot.log(f"[MONITOR] Detected interrupted {activity_type} - restarting...")
                 
                 if activity_type == "bottles" and bottles_enabled:
                     current_bot.log("[MONITOR] Restarting interrupted bottle collection...")
                     from src.tasks import search_bottles
                     res = search_bottles(current_bot, bottles_duration)
                     if res.get("success"):
-                        current_bot.log(f"Restarted bottle collection: {res.get('message', '')}")
+                        current_bot.log(f"Restarted: {res.get('message', '')}")
                 elif activity_type == "skill" and training_enabled:
                     from src.db import get_session
                     from src.models import BotActivity
@@ -614,16 +619,14 @@ def _bot_activity_monitor_task():
                         activity = s.query(BotActivity).filter_by(activity_type="skill", was_interrupted=True).first()
                         if activity and activity.activity_subtype:
                             subtype = activity.activity_subtype
-                            current_bot.log(f"[MONITOR] Restarting interrupted skill training: {subtype}")
+                            current_bot.log(f"[MONITOR] Restarting interrupted training: {subtype}")
                             res = current_bot.start_skill(subtype)
                             if res.get("success"):
-                                current_bot.log(f"Restarted skill training: {res.get('message', '')}")
+                                current_bot.log(f"Restarted: {res.get('message', '')}")
                                 activity.was_interrupted = False
                                 
     except Exception as e:
-        get_bot().log(f"Activity monitor error: {e}")
-        import traceback
-        traceback.print_exc()
+        get_bot().log(f"Monitor error: {e}")
 
 
 def manage_scheduler_jobs(config):
@@ -635,17 +638,53 @@ def manage_scheduler_jobs(config):
 
     current_bot = get_bot()
     now = datetime.now().astimezone()
+    
+    # Prüfe ob Bot eingeloggt ist - wenn nicht, keine Jobs planen!
+    if not current_bot.is_logged_in(skip_log=True):
+        current_bot.log("[WARN] Nicht eingeloggt - Jobs werden nicht geplant")
+        # Nur Monitor-Job planen falls noch nicht vorhanden
+        if config["is_running"]:
+            monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
+            if not monitor_job:
+                scheduler.add_job(
+                    _bot_activity_monitor_task,
+                    trigger="interval",
+                    seconds=120,
+                    id=ACTIVITY_MONITOR_JOB_ID,
+                    replace_existing=True,
+                )
+                current_bot.log("[MONITOR] Activity monitor job scheduled (every 120s)")
+        return
+    
+    # Hole aktuellen Status (nur wenn eingeloggt)
+    skill_already_running = current_bot.skill_running if hasattr(current_bot, 'skill_running') and current_bot.skill_running else False
+    bottles_already_running = current_bot.bottles_running if hasattr(current_bot, 'bottles_running') and current_bot.bottles_running else False
 
-    current_bot.log(f"[DEBUG] manage_scheduler_jobs: is_running={config['is_running']}, training={config['training_enabled']}, bottles={config['bottles_enabled']}")
-
-    # === Pfandflaschen sammeln ===
+    # === MonitorJob (läuft immer wenn Bot aktiv) ===
+    if config["is_running"]:
+        monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
+        if not monitor_job:
+            scheduler.add_job(
+                _bot_activity_monitor_task,
+                trigger="interval",
+                seconds=120,
+                id=ACTIVITY_MONITOR_JOB_ID,
+                replace_existing=True,
+            )
+            current_bot.log("[MONITOR] Activity monitor job scheduled (every 120s)")
+    
+    # === Aktiv-Jobs NUR planen wenn NICHT bereits aktiv ===
+    # Sonst laufen sie doppelt!
+    
+    # Bottle-Job
     if config["bottles_enabled"] and config["is_running"]:
         bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
-        current_bot.log(f"[DEBUG] Bottle job exists: {bottle_job is not None}")
-        if not bottle_job:
-            # Kein Job existiert - plane ersten (auch wenn Bottles bereits laufen)
+        if bottles_already_running:
+            current_bot.log("[SKIP] Bottle bereits aktiv im Spiel")
+        elif not bottle_job:
+            # Bottles nicht aktiv → Job planen (kurze delay)
             current_bot.log("Plane ersten Bottle-Job...")
-            run_date = now + timedelta(seconds=10)  # Sofort starten
+            run_date = now
             scheduler.add_job(
                 _bot_collect_bottles_task,
                 trigger="date",
@@ -655,23 +694,17 @@ def manage_scheduler_jobs(config):
                 max_instances=1,
                 replace_existing=True,
             )
-            current_bot.log("[SCHEDULER] Bottle-Job geplant in 10s")
-    else:
-        # Deaktiviert oder Bot nicht running - entferne Job
-        bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
-        if bottle_job:
-            bottle_job.remove()
-            current_bot.log("Bottle-Job entfernt (deaktiviert)")
-
-    # === Weiterbildungen ===
+            current_bot.log("[SCHEDULER] Bottle-Job gestartet")
+    
+    # Training-Job
     if config["training_enabled"] and config["is_running"]:
         training_job = scheduler.get_job(TRAINING_JOB_ID)
-        reschedule_job = scheduler.get_job(f"{TRAINING_JOB_ID}-reschedule")
-        current_bot.log(f"[DEBUG] Training job exists: {training_job is not None}, reschedule: {reschedule_job is not None}")
-        if not training_job or not reschedule_job:
-            # Kein Job existiert - plane ersten (auch wenn Training bereits läuft)
+        if skill_already_running:
+            current_bot.log("[SKIP] Training bereits aktiv im Spiel")
+        elif not training_job:
+            # Training nicht aktiv → Job planen (kurze delay)
             current_bot.log("Plane ersten Training-Job...")
-            run_date = now + timedelta(seconds=15)
+            run_date = now
             scheduler.add_job(
                 _bot_training_task,
                 trigger="date",
@@ -681,49 +714,15 @@ def manage_scheduler_jobs(config):
                 max_instances=1,
                 replace_existing=True,
             )
-            scheduler.add_job(
-                _schedule_next_training_task,
-                trigger="date",
-                run_date=run_date + timedelta(seconds=10),
-                id=f"{TRAINING_JOB_ID}-reschedule",
-                coalesce=True,
-                max_instances=1,
-                replace_existing=True,
-            )
-            current_bot.log("[SCHEDULER] Training-Job geplant in 15s + Reschedule in 25s")
-    else:
-        # Deaktiviert oder Bot nicht running - entferne Jobs
-        for job_id in [TRAINING_JOB_ID, f"{TRAINING_JOB_ID}-reschedule"]:
+            current_bot.log("[SCHEDULER] Training-Job gestartet")
+    
+    # Deaktiviert: Jobs entfernen
+    if not config["is_running"]:
+        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID]:
             job = scheduler.get_job(job_id)
             if job:
                 job.remove()
-        if not config["training_enabled"]:
-            current_bot.log("Training-Jobs entfernt (deaktiviert)")
-
-    # === Activity Monitor (periodische Überprüfung) ===
-    if config["is_running"]:
-        monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
-        if not monitor_job:
-            scheduler.add_job(
-                _bot_activity_monitor_task,
-                trigger="interval",
-                seconds=60,
-                id=ACTIVITY_MONITOR_JOB_ID,
-                coalesce=True,
-                max_instances=1,
-                replace_existing=True,
-                misfire_grace_time=30,
-                executor="monitor",
-            )
-            current_bot.log("[MONITOR] Activity monitor job scheduled (every 120s)")
-        else:
-            # Job existiert bereits - nichts zu tun
-            pass
-    else:
-        monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
-        if monitor_job:
-            monitor_job.remove()
-            current_bot.log("[MONITOR] Activity monitor job removed")
+        current_bot.log("[INFO] Alle Jobs entfernt (Bot deaktiviert)")
 
 
 def _schedule_next_training_task(skip_training: bool = False):
@@ -788,19 +787,6 @@ def _schedule_next_training_task(skip_training: bool = False):
         replace_existing=True,
     )
 
-    scheduler.add_job(
-        _schedule_next_training_task,
-        trigger="date",
-        run_date=run_date + timedelta(seconds=10),
-        id=f"{TRAINING_JOB_ID}-reschedule",
-        coalesce=True,
-        max_instances=1,
-        replace_existing=True,
-    )
-
-
-
-
 
 def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
     """
@@ -818,14 +804,12 @@ def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
 
     try:
         with get_session() as s:
-            # Aktueller Wert (neuester Eintrag)
             latest = s.query(model_class).order_by(model_class.id.desc()).first()
             if not latest:
                 return None
 
             value_now = getattr(latest, value_field)
 
-            # Wert vor 24h
             cutoff_time = datetime.now() - timedelta(hours=24)
             oldest_24h = (
                 s.query(model_class)
@@ -835,13 +819,11 @@ def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
             )
 
             if not oldest_24h:
-                # Kein Eintrag aus letzten 24h, nutze ältesten verfügbaren
                 oldest_24h = (
                     s.query(model_class).order_by(model_class.timestamp.asc()).first()
                 )
 
             if not oldest_24h or oldest_24h.id == latest.id:
-                # Nur ein Eintrag, kein Trend
                 return {
                     "value_now": value_now,
                     "value_24h_ago": value_now,
@@ -852,25 +834,14 @@ def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
             value_24h_ago = getattr(oldest_24h, value_field)
             difference = value_now - value_24h_ago
 
-            # Formatierung
             if is_money:
-                # Geld-Formatierung: €+1.234,56 (deutsches Format)
                 if difference > 0:
-                    formatted = (
-                        f"€+{difference:,.2f}".replace(",", "X")
-                        .replace(".", ",")
-                        .replace("X", ".")
-                    )
+                    formatted = f"€+{difference:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 elif difference < 0:
-                    formatted = (
-                        f"€{difference:,.2f}".replace(",", "X")
-                        .replace(".", ",")
-                        .replace("X", ".")
-                    )
+                    formatted = f"€{difference:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 else:
                     formatted = "€±0"
             else:
-                # Integer-Formatierung: +1.234 (mit Tausender-Trennzeichen)
                 if difference > 0:
                     formatted = f"+{int(difference):,}".replace(",", ".")
                 elif difference < 0:
@@ -885,8 +856,22 @@ def calculate_trend_24h(model_class, value_field: str, is_money: bool = False):
                 "formatted": formatted,
             }
     except Exception as e:
-        print(f"Error calculating trend: {e}")
+        logger.error("Error calculating trend: %s", e)
         return None
+
+
+def _get_city_info(session):
+    """Helper to get city info from database (cached)."""
+    from src.constants import CITIES, CITY_DISPLAY_NAMES
+    from src.models import Settings
+
+    city_setting = session.query(Settings).filter_by(key="city").first()
+    city = city_setting.value if city_setting and city_setting.value else "hamburg"
+
+    return {
+        "name": CITY_DISPLAY_NAMES.get(city, "Hamburg"),
+        "url": CITIES.get(city, CITIES["hamburg"])
+    }
 
 
 @app.get("/api/health")
@@ -1045,7 +1030,6 @@ def dashboard_status() -> Dict[str, Any]:
     """
     try:
         current_bot = get_bot()
-        # Aktualisiere Activity-Status mit Cache (180s)
         if getattr(current_bot, "logged_in", False):
             current_bot.refresh_status(force=False)
             perf_monitor.record_cache_hit()
@@ -1056,7 +1040,6 @@ def dashboard_status() -> Dict[str, Any]:
         config = get_bot_config()
 
         with get_session() as s:
-            # Latest log (single query)
             last_log = s.query(Log).order_by(Log.id.desc()).first()
             latest_log = (
                 {
@@ -1068,44 +1051,16 @@ def dashboard_status() -> Dict[str, Any]:
                 else None
             )
 
-            # Get city information from settings
             try:
-                city_setting = s.query(Settings).filter_by(key="city").first()
-                city = city_setting.value if city_setting and city_setting.value else "hamburg"
-                
-                # Import city mapping from constants
-                from src.constants import CITIES
-                
-                # Map city key to display name and URL
-                city_display_names = {
-                    "hamburg": "Hamburg",
-                    "vatikan": "Vatikan",
-                    "sylt": "Sylt",
-                    "malle": "Malle",
-                    "reloaded": "Hamburg Reloaded",
-                    "koeln": "Köln",
-                    "berlin": "Berlin",
-                    "muenchen": "München",
-                }
-                
-                city_info = {
-                    "name": city_display_names.get(city, "Hamburg"),
-                    "url": CITIES.get(city, CITIES["hamburg"])
-                }
+                city_info = _get_city_info(s)
             except Exception as e:
                 logger.warning(f"Failed to get city information: {e}")
-                # Fallback to default city info
-                city_info = {
-                    "name": "Hamburg",
-                    "url": "https://www.pennergame.de"
-                }
+                city_info = {"name": "Hamburg", "url": "https://www.pennergame.de"}
 
-        # Format response
         penner_data = data.copy() if data else {}
         penner_data["city"] = city_info["name"]
         penner_data["city_url"] = city_info["url"]
 
-        # Calculate trends for money, rank, and points
         if penner_data:
             from src.models import MoneyHistory, PointsHistory, RankHistory
 
@@ -1113,7 +1068,6 @@ def dashboard_status() -> Dict[str, Any]:
             rank_trend = calculate_trend_24h(RankHistory, "rank", is_money=False)
             points_trend = calculate_trend_24h(PointsHistory, "points", is_money=False)
 
-            # Add formatted trends to penner_data
             if money_trend:
                 penner_data["money_trend"] = money_trend["formatted"]
             if rank_trend:
@@ -1146,84 +1100,36 @@ def dashboard_status() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _format_money_trend(difference: float) -> str:
-    """Format money trend with German formatting."""
-    if difference > 0:
-        return (
-            f"€+{difference:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        )
-    elif difference < 0:
-        return (
-            f"€{difference:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        )
-    return "€±0"
 
-
-def _format_number_trend(difference: int) -> str:
-    """Format number trend with thousand separator."""
-    if difference > 0:
-        return f"+{int(difference):,}".replace(",", ".")
-    elif difference < 0:
-        return f"{int(difference):,}".replace(",", ".")
-    return "±0"
 
 
 @app.get("/api/status")
-@cached(ttl=10)  # Cache für 10 Sekunden
+@cached(ttl=10)
 def status() -> Dict[str, Any]:
-    """
-    Legacy endpoint - für Rückwärtskompatibilität. Nutze /api/dashboard für bessere Performance.
-    Cached für 10 Sekunden um parallele Requests zu optimieren.
-    """
+    """Legacy endpoint - nutze /api/dashboard für bessere Performance."""
     try:
-        current_bot = get_bot()  # Ensure bot is initialized
+        current_bot = get_bot()
         
-        # Aktualisiere Activity-Status mit Cache (180s) - nur wenn eingeloggt
         if getattr(current_bot, "logged_in", False):
             try:
                 current_bot.refresh_status(force=False)
             except Exception as e:
                 logger.warning(f"Failed to refresh status: {e}")
 
-        # Nutze gecachte Daten statt neuem Request
         try:
             data = current_bot.get_penner_data()
         except Exception as e:
             logger.warning(f"Failed to get penner data: {e}")
             data = None
         
-        # Add city information
         try:
             with get_session() as s:
-                city_setting = s.query(Settings).filter_by(key="city").first()
-                city = city_setting.value if city_setting and city_setting.value else "hamburg"
-                
-                # Import city mapping from constants
-                from src.constants import CITIES
-                
-                # Map city key to display name and URL
-                city_display_names = {
-                    "hamburg": "Hamburg",
-                    "vatikan": "Vatikan",
-                    "sylt": "Sylt",
-                    "malle": "Malle",
-                    "reloaded": "Hamburg Reloaded",
-                    "koeln": "Köln",
-                    "berlin": "Berlin",
-                    "muenchen": "München",
-                }
-                
-                city_info = {
-                    "name": city_display_names.get(city, "Hamburg"),
-                    "url": CITIES.get(city, CITIES["hamburg"])
-                }
-                
+                city_info = _get_city_info(s)
                 if data:
                     data["city"] = city_info["name"]
                     data["city_url"] = city_info["url"]
         except Exception as e:
             logger.warning(f"Failed to get city information: {e}")
-            # Fallback to default city info
             if data:
                 data["city"] = "Hamburg"
                 data["city_url"] = "https://www.pennergame.de"
@@ -1559,7 +1465,7 @@ def database_dump() -> Dict[str, Any]:
                     result[table_name] = table_data
 
                 except Exception as e:
-                    print(f"Error reading table {table_name}: {e}")
+                    logger.error("Error reading table %s: %s", table_name, e)
                     result[table_name] = []
 
         return {"tables": result}
@@ -1628,7 +1534,7 @@ def get_settings() -> Dict[str, Any]:
 
         return {"settings": settings_dict}
     except Exception as e:
-        print(f"ERROR in get_settings: {e}")
+        logger.error("ERROR in get_settings: %s", e)
         import traceback
 
         traceback.print_exc()
@@ -1670,7 +1576,6 @@ def bot_state() -> Dict[str, Any]:
         config = get_bot_config()
         bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
         training_job = scheduler.get_job(TRAINING_JOB_ID)
-        training_reschedule_job = scheduler.get_job(f"{TRAINING_JOB_ID}-reschedule")
 
         # Debug-Informationen
         debug_info = {
@@ -1683,7 +1588,6 @@ def bot_state() -> Dict[str, Any]:
             "running": config["is_running"],
             "bottle_job_scheduled": bool(bottle_job),
             "training_job_scheduled": bool(training_job),
-            "training_reschedule_job_scheduled": bool(training_reschedule_job),
             "config": config,
             "debug": debug_info,
         }
@@ -1735,7 +1639,7 @@ def bot_start() -> Dict[str, Any]:
             return {"running": True, "config": config, "warning": "Not logged in"}
 
         # Auto-Sell initiale Prüfung
-        if config.get("bottles_autosell_enabled"):
+        if config.get("bottles_enabled") and config.get("bottles_autosell_enabled"):
             current_bot.log("Auto-Sell bereit")
             try:
                 from src.models import BottlePrice
@@ -1851,7 +1755,7 @@ def bot_stop() -> Dict[str, Any]:
         update_bot_config(is_running=False, last_stopped=datetime.now())
 
         # Entferne alle Bot-Jobs (einschließlich Monitor)
-        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID, ACTIVITY_MONITOR_JOB_ID, f"{TRAINING_JOB_ID}-reschedule"]:
+        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID, ACTIVITY_MONITOR_JOB_ID]:
             job = scheduler.get_job(job_id)
             if job:
                 job.remove()

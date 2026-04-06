@@ -43,7 +43,6 @@ def search_bottles(bot, time_minutes: int = 10):
 
             bot.log("Einkaufswagen ausgeleert")
 
-            # Cache intelligent invalidieren - nur Activities
             bot._activities_cache = None
             bot._activities_cache_time = None
 
@@ -105,14 +104,12 @@ def cancel_bottle_collecting(bot):
             data={"cancel": "1", "Submit2": "Abbrechen"},
         )
 
-        # OPTIMIERUNG: Parse Response direkt statt Cache invalidieren + neuen Request
         activities = parse_activities(response.text)
         bot._activities_cache = activities
         bot._activities_cache_time = datetime.now()
 
         bottles_status = activities.get("bottles", {})
 
-        # Parse Header-Counter aus Response
         try:
             counters = parse_header_counters(response.text)
             bot._update_activity_status(counters)
@@ -125,10 +122,7 @@ def cancel_bottle_collecting(bot):
             return {"success": True, "message": "Pfandflaschensammeln abgebrochen"}
         else:
             bot.log("Abbruch möglicherweise fehlgeschlagen")
-            return {
-                "success": False,
-                "message": "Abbruch fehlgeschlagen - Status noch aktiv",
-            }
+            return {"success": False, "message": "Abbruch fehlgeschlagen - Status noch aktiv"}
 
     except Exception as e:
         error_msg = f"Fehler beim Abbrechen: {e}"
@@ -162,7 +156,6 @@ def start_concentration(bot, mode: str = "none"):
         ):
             bot.log("Konzentrationsmodus gestartet")
 
-            # OPTIMIERUNG: Parse Response direkt
             activities = parse_activities(response.text)
             bot._activities_cache = activities
             bot._activities_cache_time = datetime.now()
@@ -215,7 +208,6 @@ def stop_concentration(bot):
             data={"cancel_confirmation": username},
         )
 
-        # OPTIMIERUNG: Parse Response direkt
         activities = parse_activities(response.text)
         bot._activities_cache = activities
         bot._activities_cache_time = datetime.now()
@@ -257,24 +249,18 @@ def get_concentration_status(bot, force_refresh: bool = False):
 
 
 def sell_bottles(bot, amount: int):
-    """Pfandflaschen verkaufen"""
     from .parse import parse_header_counters
     from .constants import MIN_BOTTLE_PRICE_CENTS, MAX_BOTTLE_PRICE_CENTS
 
     try:
         bot.log(f"Verkaufe {amount} Pfandflaschen...")
 
-        # OPTIMIERUNG: Nutze gecachte Activities statt neuem Request!
-        # /stock/bottle/ ist teuer, nutze Cache wenn vorhanden
         activities = bot.get_activities_data(use_cache=True)
         activities.get("bottles", {})
 
-        # Hole aktuelle Seite NUR wenn Cache zu alt oder leer
-        # Dies vermeidet unnötigen Request wenn wir gerade erst Status geholt haben
         response = bot.api_get(bot.client, "/stock/bottle/")
         html = response.text
 
-        # Parse aktuellen Preis und verfügbare Flaschen
         soup = BeautifulSoup(html, "html.parser")
 
         chkval_input = soup.find("input", {"name": "chkval"})
@@ -287,12 +273,10 @@ def sell_bottles(bot, amount: int):
         current_price = int(chkval_input.get("value", 0))
         max_bottles = int(max_input.get("value", 0))
 
-        # Validiere Preisbereich
         if current_price < MIN_BOTTLE_PRICE_CENTS or current_price > MAX_BOTTLE_PRICE_CENTS:
             bot.log(f"Ungültiger Flaschenpreis: {current_price} Cent")
             return {"success": False, "message": f"Ungültiger Preis: {current_price} Cent"}
 
-        # OPTIMIERUNG: Parse Header Counter aus GET Response
         try:
             counters = parse_header_counters(response.text)
             bot._update_activity_status(counters)
@@ -308,7 +292,6 @@ def sell_bottles(bot, amount: int):
             bot.log("Keine Flaschen zum Verkaufen")
             return {"success": False, "message": "Keine Flaschen verfügbar"}
 
-        # Verkaufe Flaschen
         sell_response = bot.api_post(
             bot.client,
             "/stock/bottle/sell/",
@@ -319,32 +302,27 @@ def sell_bottles(bot, amount: int):
             },
         )
 
-        # Parse Erfolgsmeldung
         soup_result = BeautifulSoup(sell_response.text, "html.parser")
         notifyme = soup_result.find("div", {"id": "notifyme"})
 
         if notifyme:
             message_text = notifyme.get_text(strip=True)
 
-            # Extrahiere Erlös aus Meldung
             earned_match = re.search(r"für €([\d,\.]+)", message_text)
             earned = earned_match.group(1) if earned_match else "0"
 
             bot.log(f"{amount} Flaschen für €{earned} verkauft")
 
-            # OPTIMIERUNG: Parse Header Counter aus POST Response
             try:
                 counters = parse_header_counters(sell_response.text)
                 bot._update_activity_status(counters)
                 bot._status_cache_time = datetime.now()
 
-                # Speichere Money + Bottle Price aus Response
                 bot._save_money(sell_response.text)
                 bot._save_bottle_price(sell_response.text)
             except Exception as e:
                 bot.log(f"Could not parse counters from POST: {e}")
 
-            # Cache intelligent invalidieren
             bot._activities_cache = None
             bot._activities_cache_time = None
 
@@ -367,7 +345,6 @@ def sell_bottles(bot, amount: int):
 
 
 def empty_bottle_cart(bot):
-    """Einkaufswagen leeren nach Pfandflaschensuche"""
     from .parse import parse_activities, parse_header_counters
 
     try:
@@ -384,12 +361,10 @@ def empty_bottle_cart(bot):
             },
         )
 
-        # Parse Response
         activities = parse_activities(response.text)
         bot._activities_cache = activities
         bot._activities_cache_time = datetime.now()
 
-        # OPTIMIERUNG: Parse Header Counter aus Response
         try:
             counters = parse_header_counters(response.text)
             bot._update_activity_status(counters)
@@ -407,7 +382,6 @@ def empty_bottle_cart(bot):
 
         bot.log("" + message)
 
-        # Trigger Auto-Sell Check da neue Flaschen hinzugekommen sind
         try:
             from .db import get_session
             from .models import BottlePrice
@@ -435,22 +409,15 @@ def empty_bottle_cart(bot):
 
 
 def get_bottles_inventory(bot):
-    """
-    Hole Pfandflaschen-Inventar (Anzahl und Preis)
-    OPTIMIERUNG: Diese Funktion sollte vermieden werden - nutze stattdessen sell_bottles() Response
-    """
     from .parse import parse_header_counters
     from .constants import MIN_BOTTLE_PRICE_CENTS, MAX_BOTTLE_PRICE_CENTS
 
     try:
-        # Prüfe ob wir erst kürzlich /stock/bottle/ geholt haben
-        # Dies vermeidet redundante Requests
         response = bot.api_get(bot.client, "/stock/bottle/")
         html = response.text
 
         soup = BeautifulSoup(html, "html.parser")
 
-        # Parse verfügbare Flaschen
         chkval_input = soup.find("input", {"name": "chkval"})
         max_input = soup.find("input", {"name": "max"})
 
@@ -460,24 +427,19 @@ def get_bottles_inventory(bot):
         current_price = int(chkval_input.get("value", 0))
         bottle_count = int(max_input.get("value", 0))
 
-        # Validiere Preisbereich
         if current_price < MIN_BOTTLE_PRICE_CENTS or current_price > MAX_BOTTLE_PRICE_CENTS:
             bot.log(f"Ungültiger Flaschenpreis: {current_price} Cent")
             return {"success": False, "message": f"Ungültiger Preis: {current_price} Cent"}
 
-        # OPTIMIERUNG: Parse Header Counter aus Response
         try:
             counters = parse_header_counters(response.text)
             bot._update_activity_status(counters)
             bot._status_cache_time = datetime.now()
-
-            # Speichere Money + Bottle Price aus Response
             bot._save_money(response.text)
             bot._save_bottle_price(response.text)
         except Exception as e:
             bot.log(f"Could not parse counters: {e}")
 
-        # Parse Display-Text für Anzahl
         bottle_text = None
         for td in soup.find_all("td"):
             text = td.get_text(strip=True)
@@ -499,16 +461,6 @@ def get_bottles_inventory(bot):
 
 
 def start_training(bot, skill_type: str):
-    """
-    Starte eine Weiterbildung für den angegebenen Skill-Typ
-
-    Args:
-        bot: PennerBot instance
-        skill_type: "att", "def" oder "agi"
-
-    Returns:
-        dict: {"success": bool, "message": str, "skill_type": str}
-    """
     from .parse import parse_header_counters
     from .constants import VALID_TRAINING_SKILLS
 
@@ -543,11 +495,9 @@ def start_training(bot, skill_type: str):
         response = bot.api_post(bot.client, f"/skill/upgrade/{skill_type}/", data={})
 
         if response.status_code == 200:
-            # Parse Response um zu prüfen ob erfolgreich
             if "Es läuft bereits eine Weiterbildung" in response.text:
                 bot.log(f"Weiterbildung {skill_names[skill_type]} gestartet")
 
-                # OPTIMIERUNG: Parse Counter aus Response
                 try:
                     counters = parse_header_counters(response.text)
                     bot._update_activity_status(counters)
@@ -624,7 +574,6 @@ def cancel_training(bot):
         response = bot.api_post(bot.client, "/skill/cancel/", data={"skill_num": "1"})
 
         if response.status_code == 200:
-            # OPTIMIERUNG: Parse Counter aus Response
             try:
                 counters = parse_header_counters(response.text)
                 bot._update_activity_status(counters)

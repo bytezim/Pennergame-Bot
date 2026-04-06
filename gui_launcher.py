@@ -6,6 +6,7 @@ PennerBot GUI Launcher
 import sys
 import os
 import json
+import logging
 import threading
 import subprocess
 import time
@@ -14,11 +15,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-# Handle encoding for bundled executables
 import io
 
-# Ensure stdout/stderr can handle Unicode in bundled apps
+# In PyInstaller bundles sys.stdout/sys.stderr are None (no console attached).
+# Install a no-op fallback BEFORE any logging setup to prevent
+# "NoneType has no attribute 'write'" errors from the root StreamHandler.
 if hasattr(sys, '_MEIPASS'):
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
+    # If they have a buffer, wrap for proper UTF-8 handling
     try:
         if hasattr(sys.stdout, 'buffer') and sys.stdout.buffer is not None:
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -26,6 +33,13 @@ if hasattr(sys, '_MEIPASS'):
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     except (AttributeError, OSError):
         pass
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger("gui_launcher")
 
 
 # GUI imports
@@ -70,18 +84,11 @@ class ProcessManager:
             # Run backend in a thread for bundle mode
             import os
             import io
-            import logging
             
-            # Create pipes for capturing output
+            # Create StringIO buffer for capturing output
             self._backend_reader = io.StringIO()
-            old_stdout = sys.stdout
-            old_stderr = sys.stderr
             
             def run_backend():
-                # Redirect stdout/stderr to capture logs
-                sys.stdout = self._backend_reader
-                sys.stderr = self._backend_reader
-                
                 try:
                     # Change to bundle directory for proper module resolution
                     if hasattr(sys, '_MEIPASS'):
@@ -90,9 +97,49 @@ class ProcessManager:
                         if bundle_dir not in sys.path:
                             sys.path.insert(0, bundle_dir)
                     
+                    # Redirect logging to the StringIO capture buffer.
+                    # We must do this BEFORE importing server.py (which calls setup_logging on import).
+                    # The trick: replace all StreamHandlers on the root logger with ones pointing
+                    # at our StringIO, and also redirect sys.stdout/stderr so that uvicorn's own
+                    # print-based output is also captured.
+                    import logging as _logging
+                    
+                    # Point stdout/stderr at our capture buffer
+                    sys.stdout = self._backend_reader
+                    sys.stderr = self._backend_reader
+                    
+                    # Remove all existing handlers from root logger (they hold stale stream refs)
+                    root = _logging.getLogger()
+                    for h in root.handlers[:]:
+                        try:
+                            h.close()
+                        except Exception:
+                            pass
+                        root.removeHandler(h)
+                    
+                    # Install a fresh StreamHandler pointing at our StringIO
+                    fmt = _logging.Formatter(
+                        "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+                    )
+                    sh = _logging.StreamHandler(self._backend_reader)
+                    sh.setLevel(_logging.INFO)
+                    sh.setFormatter(fmt)
+                    root.addHandler(sh)
+                    root.setLevel(_logging.INFO)
+                    
                     # Import and run server directly with proper shutdown capability
                     import uvicorn
                     from server import app
+                    
+                    # After import, server.py called setup_logging() which may have added
+                    # another handler. Re-clean to ensure only our handler is present.
+                    for h in root.handlers[:]:
+                        if h is not sh:
+                            try:
+                                h.close()
+                            except Exception:
+                                pass
+                            root.removeHandler(h)
                     
                     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
                     self._uvicorn_server = uvicorn.Server(config)
@@ -102,14 +149,12 @@ class ProcessManager:
                 except Exception as e:
                     error_msg = f"Backend thread error: {e}"
                     try:
-                        print(error_msg)
+                        logger.error(error_msg)
                         import traceback
                         traceback.print_exc()
-                    except:
+                    except Exception:
                         pass
                 finally:
-                    sys.stdout = old_stdout
-                    sys.stderr = old_stderr
                     self._uvicorn_server = None
             
             self._backend_thread = threading.Thread(target=run_backend, daemon=True)
@@ -142,11 +187,11 @@ class ProcessManager:
                 return True
             else:
                 stdout, stderr = self.backend_process.communicate()
-                print(f"Backend failed to start: {stderr}")
+                logger.error("Backend failed to start: %s", stderr)
                 return False
                 
         except Exception as e:
-            print(f"Error starting backend: {e}")
+            logger.error("Error starting backend: %s", e)
             return False
     
     def start_frontend(self, port: int = 1420) -> bool:
@@ -154,6 +199,22 @@ class ProcessManager:
         if self.is_pyinstaller_bundle:
             # Run frontend in a thread for bundle mode
             def run_frontend():
+                import logging as _logging
+                # Redirect aiohttp access logger to our StringIO capture buffer.
+                # aiohttp uses its own 'aiohttp.access' logger - we must ensure
+                # its StreamHandlers don't hold a stale None stdout reference.
+                for log_name in ("aiohttp.access", "aiohttp.server", "aiohttp.web"):
+                    _log = _logging.getLogger(log_name)
+                    for h in _log.handlers[:]:
+                        try:
+                            h.close()
+                        except Exception:
+                            pass
+                        _log.removeHandler(h)
+                    sh = _logging.StreamHandler(sys.stdout)
+                    sh.setLevel(_logging.INFO)
+                    _log.addHandler(sh)
+                
                 from web.serve import run_server
                 run_server(port=port)
             
@@ -171,7 +232,7 @@ class ProcessManager:
         try:
             dist_path = Path(__file__).parent / "web" / "dist"
             if not dist_path.exists():
-                print("Frontend build not found. Please build the frontend first with: npm run build")
+                logger.error("Frontend build not found. Please build the frontend first with: npm run build")
                 return False
             
             serve_py = Path(__file__).parent / "web" / "serve.py"
@@ -191,26 +252,24 @@ class ProcessManager:
                 return True
             else:
                 stdout, stderr = self.frontend_process.communicate()
-                print(f"Frontend failed to start: {stderr}")
+                logger.error("Frontend failed to start: %s", stderr)
                 return False
                 
         except Exception as e:
-            print(f"Error starting frontend: {e}")
+            logger.error("Error starting frontend: %s", e)
             return False
     
     def stop_backend(self):
         """Stop the backend process"""
         if self.is_pyinstaller_bundle and self._uvicorn_server:
             try:
-                # Gracefully stop uvicorn server
-                import asyncio
                 if hasattr(self._uvicorn_server, 'should_exit'):
                     self._uvicorn_server.should_exit = True
-                # Wait a bit for server to shutdown
-                import time
-                time.sleep(1.5)
             except Exception as e:
-                print(f"Error stopping uvicorn server: {e}")
+                logger.error("Error signaling uvicorn shutdown: %s", e)
+            # Wait for the backend thread to fully exit so all DB connections are released
+            if self._backend_thread and self._backend_thread.is_alive():
+                self._backend_thread.join(timeout=8)
         
         if self.backend_process:
             try:
@@ -219,7 +278,7 @@ class ProcessManager:
             except subprocess.TimeoutExpired:
                 self.backend_process.kill()
             except Exception as e:
-                print(f"Error stopping backend: {e}")
+                logger.error("Error stopping backend: %s", e)
             finally:
                 self.backend_process = None
     
@@ -232,7 +291,7 @@ class ProcessManager:
             except subprocess.TimeoutExpired:
                 self.frontend_process.kill()
             except Exception as e:
-                print(f"Error stopping frontend: {e}")
+                logger.error("Error stopping frontend: %s", e)
             finally:
                 self.frontend_process = None
     
@@ -675,18 +734,14 @@ class SimpleGUI:
         """Safely exit the application"""
         self.running = False
         
-        # Stop processes
-        self.process_manager.stop_all()
+        # Stop backend first: signals uvicorn to exit AND waits for the thread
+        # to fully terminate so all SQLAlchemy connections are released
+        self.process_manager.stop_backend()
+        self.process_manager.stop_frontend()
         
-        # Give threads time to terminate properly
-        import time
-        time.sleep(0.5)
-        
-        # Close database connection properly (merges WAL, removes shm/wal files)
+        # Close database: WAL checkpoint + dispose engine + remove WAL/SHM files.
+        # Must run AFTER the backend thread has exited (guaranteed by stop_backend above).
         close_db_connection()
-        
-        # Extra wait for file locks to be released
-        time.sleep(0.2)
         
         # Destroy GUI
         if self.root:
@@ -703,9 +758,9 @@ class SimpleGUI:
 def main():
     """Main entry point"""
     try:
-        print("=" * 60)
-        print("PennerBot GUI Launcher")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("PennerBot GUI Launcher")
+        logger.info("=" * 60)
         
         # Create and run GUI
         gui = SimpleGUI()
@@ -714,18 +769,18 @@ def main():
         gui.run()
         
     except Exception as e:
-        print(f"Critical error in GUI launcher: {e}")
+        logger.error("Critical error in GUI launcher: %s", e)
         import traceback
         traceback.print_exc()
         input("\nPress Enter to exit...")
     finally:
-        # Ensure clean shutdown
+        # Fallback: ensure clean shutdown if safe_exit wasn't called
         try:
             if 'gui' in locals():
-                gui.process_manager.stop_all()
-            # Close database connection properly
+                gui.process_manager.stop_backend()
+                gui.process_manager.stop_frontend()
             close_db_connection()
-        except:
+        except Exception:
             pass
 
 if __name__ == "__main__":

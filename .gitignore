@@ -74,3 +74,4 @@ lerna-debug.log*
 data.db-shm
 data.db-wal
 Makilski/*
+web/tsconfig.tsbuildinfo

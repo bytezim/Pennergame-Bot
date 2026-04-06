@@ -1,35 +1,26 @@
 import re
+import logging
 
 from bs4 import BeautifulSoup
 
+logger = logging.getLogger(__name__)
+
 
 def parse_header_counters(html: str) -> dict:
-    """
-    Parse die Counter aus dem Header (Weiterbildung, Kampf, Pfandflaschen)
-
-    Returns:
-        dict mit counter0 (skill_seconds), counter1 (fight_seconds), counter2 (bottle_seconds)
-    """
     counters = {}
 
-    # Regex pattern für counter(SEKUNDEN, URL) oder counter(SEKUNDEN)
-    # counter0 = Weiterbildung, counter1 = Kampf, counter2 = Pfandflaschen
-
-    # Skill counter (counter0)
     skill_match = re.search(r'counter\((\d+)[,"]*/skills/', html)
     if skill_match:
         counters["skill_seconds"] = int(skill_match.group(1))
     else:
         counters["skill_seconds"] = None
 
-    # Fight counter (counter1)
     fight_match = re.search(r'counter\((-?\d+)[,"]*/fight/', html)
     if fight_match:
         counters["fight_seconds"] = int(fight_match.group(1))
     else:
         counters["fight_seconds"] = None
 
-    # Bottles counter (counter2)
     bottles_match = re.search(r'counter\((\d+)[,"]*/activities/', html)
     if bottles_match:
         counters["bottle_seconds"] = int(bottles_match.group(1))
@@ -40,93 +31,51 @@ def parse_header_counters(html: str) -> dict:
 
 
 def parse_promille(html: str) -> float:
-    """
-    Parse den Promillewert aus dem Header
-
-    Returns:
-        float: Promillewert (z.B. 2.50 für 2.50‰)
-    """
     soup = BeautifulSoup(html, "html.parser")
-
-    # Suche nach <li class="icon beer">
     beer_li = soup.find("li", class_="icon beer")
     if beer_li:
-        # Text enthält z.B. "2.50 ‰" oder "0.00 ‰"
         text = beer_li.get_text(strip=True)
-        # Extrahiere die Zahl vor dem ‰
         match = re.search(r"([\d.]+)\s*‰", text)
         if match:
             return float(match.group(1))
-
     return 0.0
 
 
 def parse_bottle_price(html: str) -> int:
-    """
-    Parse den aktuellen Pfandflaschenpreis aus dem Header
-
-    Returns:
-        int: Preis in Cent (z.B. 21, 24, etc.)
-    """
     soup = BeautifulSoup(html, "html.parser")
-
-    # Suche nach <li class="icon bottle">
     bottle_li = soup.find("li", class_="icon bottle")
     if bottle_li:
-        # Text enthält z.B. "21 Cent" oder "24 Cent"
         text = bottle_li.get_text(strip=True)
-        # Extrahiere die Zahl vor "Cent"
         match = re.search(r"(\d+)\s*Cent", text)
         if match:
             return int(match.group(1))
-
     return 0
 
 
 def parse_money(html: str) -> float:
-    """
-    Parse den aktuellen Geldbetrag aus dem Header
-
-    Returns:
-        float: Geldbetrag in Euro (z.B. 428200.98)
-    """
     soup = BeautifulSoup(html, "html.parser")
-
-    # Suche nach <li class="icon money">
     money_li = soup.find("li", class_="icon money")
     if money_li:
-        # Text enthält z.B. "€428.200,98" oder "€1.234,56"
         text = money_li.get_text(strip=True)
-        # Extrahiere die Zahl nach € (Format: €428.200,98)
         match = re.search(r"€([\d.,]+)", text)
         if match:
             money_str = match.group(1)
-            # Entferne Tausender-Punkte und ersetze Komma durch Punkt
             money_str = money_str.replace(".", "").replace(",", ".")
             try:
                 return float(money_str)
             except ValueError:
                 return 0.0
-
     return 0.0
 
 
 def parse_bottle_count(html: str) -> int:
-    """
-    Parse die Anzahl verfügbarer Pfandflaschen aus /stock/bottle/
-
-    Returns:
-        int: Anzahl der Flaschen (aus <input name="max" value="...">)
-    """
     soup = BeautifulSoup(html, "html.parser")
-
     max_input = soup.find("input", {"name": "max"})
     if max_input:
         try:
             return int(max_input.get("value", 0))
         except (ValueError, TypeError):
             return 0
-
     return 0
 
 
@@ -148,8 +97,13 @@ def parse_overview(html: str) -> dict:
                 penner["location"] = el2_spans[1].text.strip()
                 penner["rank"] = int(el2_spans[2].text.strip())
                 penner["points"] = int(el2_spans[3].text.strip())
+            else:
+                # HTML format not as expected - maybe login page or error
+                logger.warning("Profile data not found - maybe not logged in")
+                return {}
         except (ValueError, IndexError, AttributeError) as e:
-            print(f"Warning: Failed to parse profile data: {e}")
+            logger.warning("Failed to parse profile data: %s", e)
+            return {}
 
     # Money, Promille, ATT, DEF, Cleanliness, Status
     summary = soup.find("div", id="summary")
@@ -182,7 +136,7 @@ def parse_overview(html: str) -> dict:
                         if len(money_span) >= 2:
                             penner["money"] = money_span[1].text.strip()
                 except (ValueError, IndexError, AttributeError) as e:
-                    print(f"Warning: Failed to parse status list: {e}")
+                    logger.warning("Failed to parse status list: %s", e)
 
             # Parse Promille - robuster mit Fallback (suche nach allen Promille-Klassen)
             try:
@@ -218,7 +172,7 @@ def parse_overview(html: str) -> dict:
                 else:
                     penner["promille"] = 0.0
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse promille: {e}")
+                logger.warning("Failed to parse promille: %s", e)
                 penner["promille"] = 0.0
 
             try:
@@ -231,7 +185,7 @@ def parse_overview(html: str) -> dict:
                     if def_span:
                         penner["deff"] = int(def_span.text.strip())
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse att/def: {e}")
+                logger.warning("Failed to parse att/def: %s", e)
 
             try:
                 processbar_clean = status_ov.find("div", class_="processbar_clean")
@@ -242,7 +196,7 @@ def parse_overview(html: str) -> dict:
                         if match:
                             penner["cleanliness"] = int(match.group(1))
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse cleanliness: {e}")
+                logger.warning("Failed to parse cleanliness: %s", e)
 
             # Daily task
             penner["daily_task_done"] = "noch nicht erledigt" not in status_ov.text
@@ -259,7 +213,7 @@ def parse_overview(html: str) -> dict:
                     name = name_tag.text.strip()
                     plunder.append({"slot": slots[idx] if idx < len(slots) else f"Slot {idx}", "name": name})
         except (ValueError, IndexError, AttributeError) as e:
-            print(f"Warning: Failed to parse plunder: {e}")
+            logger.warning("Failed to parse plunder: %s", e)
     penner["plunder"] = plunder
 
     # Container
@@ -308,7 +262,7 @@ def parse_overview(html: str) -> dict:
                     if input_elem:
                         penner["container_ref_link"] = input_elem.get("value", "")
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse container: {e}")
+                logger.warning("Failed to parse container: %s", e)
 
     # Weapon
     weapon_div = soup.find("h4", string=lambda s: s and "Waffe" in s)
@@ -330,7 +284,7 @@ def parse_overview(html: str) -> dict:
                     penner["weapon_name"] = None
                     penner["weapon_att"] = None
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse weapon: {e}")
+                logger.warning("Failed to parse weapon: %s", e)
                 penner["weapon_name"] = None
                 penner["weapon_att"] = None
 
@@ -353,7 +307,7 @@ def parse_overview(html: str) -> dict:
                     penner["home_name"] = None
                     penner["home_def"] = None
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse home: {e}")
+                logger.warning("Failed to parse home: %s", e)
                 penner["home_name"] = None
                 penner["home_def"] = None
 
@@ -386,7 +340,7 @@ def parse_overview(html: str) -> dict:
                     penner["instrument_income_per_day"] = None
                     penner["instrument_payout"] = None
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse instrument: {e}")
+                logger.warning("Failed to parse instrument: %s", e)
                 penner["instrument_name"] = None
                 penner["instrument_income_per_day"] = None
                 penner["instrument_payout"] = None
@@ -410,7 +364,7 @@ def parse_overview(html: str) -> dict:
                     penner["schnorrplatz_name"] = None
                     penner["schnorrplatz_income_per_donation"] = None
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse schnorrplatz: {e}")
+                logger.warning("Failed to parse schnorrplatz: %s", e)
                 penner["schnorrplatz_name"] = None
                 penner["schnorrplatz_income_per_donation"] = None
 
@@ -454,7 +408,7 @@ def parse_overview(html: str) -> dict:
                     penner["pet_defense"] = None
                     penner["pet_tricks"] = None
             except (ValueError, IndexError, AttributeError) as e:
-                print(f"Warning: Failed to parse pet: {e}")
+                logger.warning("Failed to parse pet: %s", e)
                 penner["pet_name"] = None
                 penner["pet_attack"] = None
                 penner["pet_defense"] = None
@@ -464,17 +418,10 @@ def parse_overview(html: str) -> dict:
 
 
 def parse_activities(html: str) -> dict:
-    """
-    Parse die /activities/ Seite (Pfandflaschen sammeln, Konzentration, Verbrechen)
-
-    Returns:
-        dict mit allen Activity-Infos
-    """
     soup = BeautifulSoup(html, "html.parser")
     activities = {}
 
     bottles = {}
-
     bottles["pending"] = "bottlecollect_pending" in html
     bottles["collecting"] = "Du bist auf Pfandflaschensuche" in html
 
@@ -533,7 +480,6 @@ def parse_activities(html: str) -> dict:
                     amount_match = re.search(r"(\d+)\s*x\s*<strong>", str(tr))
                     if amount_match:
                         bottles["mission_plunder_amount"] = int(amount_match.group(1))
-
                     link = tr.find("a", href="/stock/plunder/")
                     if link:
                         bottles["mission_plunder_name"] = link.text.strip()
@@ -544,7 +490,6 @@ def parse_activities(html: str) -> dict:
     activities["bottles"] = bottles
 
     concentration = {}
-
     konz_table = None
     for table in soup.find_all("table", class_="cbox"):
         tiername = table.find("span", class_="tiername")
@@ -560,10 +505,7 @@ def parse_activities(html: str) -> dict:
         concentration["active"] = "Du konzentrierst dich gerade" in konz_table.text
 
         if concentration["active"]:
-            if (
-                "Pfandflaschensammeln" in konz_table.text
-                and "Nebenbeschäftigung:" in konz_table.text
-            ):
+            if "Pfandflaschensammeln" in konz_table.text and "Nebenbeschäftigung:" in konz_table.text:
                 if "<strong>Pfandflaschensammeln</strong>" in str(konz_table):
                     concentration["mode"] = "Pfandflaschensammeln"
                     concentration["mode_value"] = "3"
@@ -573,10 +515,7 @@ def parse_activities(html: str) -> dict:
                 else:
                     concentration["mode"] = "Keine"
                     concentration["mode_value"] = "1"
-            elif (
-                "Kämpfen" in konz_table.text
-                and "Nebenbeschäftigung:" in konz_table.text
-            ):
+            elif "Kämpfen" in konz_table.text and "Nebenbeschäftigung:" in konz_table.text:
                 if "<strong>Kämpfen</strong>" in str(konz_table):
                     concentration["mode"] = "Kämpfen"
                     concentration["mode_value"] = "2"
@@ -597,7 +536,6 @@ def parse_activities(html: str) -> dict:
     activities["concentration"] = concentration
 
     crime = {}
-
     crime_table = None
     for table in soup.find_all("table", class_="cbox"):
         tiername = table.find("span", class_="tiername")
@@ -612,7 +550,6 @@ def parse_activities(html: str) -> dict:
     activities["crime"] = crime
 
     overview = {}
-
     overview_table = None
     for table in soup.find_all("table", class_="cbox"):
         tiername = table.find("span", class_="tiername")
@@ -623,7 +560,6 @@ def parse_activities(html: str) -> dict:
     if overview_table:
         for td in overview_table.find_all("td"):
             text = td.text
-
             if "Gesch.:" in text:
                 try:
                     gesch_match = re.search(r"Gesch\.: (\d+)", text)
@@ -652,7 +588,6 @@ def parse_activities(html: str) -> dict:
                     pass
 
     activities["overview"] = overview
-
     return activities
 
 

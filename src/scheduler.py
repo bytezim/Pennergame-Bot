@@ -8,15 +8,10 @@ from .logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Configure job store for persistence
 jobstores = {
     'default': SQLAlchemyJobStore(
         url=DB_URL,
-        engine_options={
-            'connect_args': {
-                'timeout': 2
-            }
-        }
+        engine_options={'connect_args': {'timeout': 2}}
     )
 }
 
@@ -29,15 +24,11 @@ executors = {
 scheduler = BackgroundScheduler(
     jobstores=jobstores,
     executors=executors,
-    job_defaults={
-        'misfire_grace_time': 30,
-        'coalesce': True
-    }
+    job_defaults={'misfire_grace_time': 30, 'coalesce': True}
 )
 
 
 def _job_executed(event):
-    """Log job execution for debugging"""
     if event.exception:
         logger.error(f"Job {event.job_id} failed: {event.exception}")
     else:
@@ -49,23 +40,28 @@ scheduler.add_listener(_job_executed, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
 def add_task(func, trigger, job_id=None, **trigger_args):
     scheduler.add_job(
-        func,
-        trigger,
-        id=job_id,
-        coalesce=True,
-        max_instances=1,
-        replace_existing=True,
-        **trigger_args
+        func, trigger, id=job_id, coalesce=True,
+        max_instances=1, replace_existing=True, **trigger_args
     )
 
 
 def start_scheduler():
     if not scheduler.running:
-        scheduler.start()  # Start scheduler first to create tables
-        # Lösche ALLE alten Jobs DIREKT im Job Store
-        jobstores['default'].remove_all_jobs()
-        # Danach nochmal alle Jobs im laufenden Scheduler entfernen
-        scheduler.remove_all_jobs()
+        try:
+            jobstores['default'].remove_all_jobs()
+        except Exception as e:
+            logger.debug(f"Could not clear jobstore: {e}")
+        
+        scheduler.start()
+        
+        try:
+            for job in scheduler.get_jobs():
+                try:
+                    job.remove()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 def stop_scheduler():

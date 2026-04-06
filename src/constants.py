@@ -127,5 +127,15 @@ PAUSE_VARIATION_MAX: Final[float] = 1.01
 # ===========================
 # CORS / HTTP
 # ===========================
-# Allowed origins for CORS middleware. Include common localhost dev ports.
 CORS_ALLOWED_ORIGINS: Final[list[str]] = ["*"]
+
+CITY_DISPLAY_NAMES: Final[dict[str, str]] = {
+    "hamburg": "Hamburg",
+    "vatikan": "Vatikan",
+    "sylt": "Sylt",
+    "malle": "Malle",
+    "reloaded": "Hamburg Reloaded",
+    "koeln": "Köln",
+    "berlin": "Berlin",
+    "muenchen": "München",
+}

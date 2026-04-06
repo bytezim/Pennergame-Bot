@@ -84,14 +84,10 @@ def setup_logging(
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     
-    # Filter speziell für APScheduler Misfire Warnungen
-    class MisfireFilter(logging.Filter):
-        def filter(self, record):
-            return "Run time of job" not in record.getMessage()
-    
-    aps_logger = logging.getLogger("apscheduler.executors")
-    aps_logger.addFilter(MisfireFilter())
-    aps_logger.setLevel(logging.WARNING)
+    # GLOBAL alle APscheduler Logger auf WARNING setzen (blockiert "missed" warnings effektiv)
+    for name in logging.Logger.manager.loggerDict:
+        if name.startswith("apscheduler"):
+            logging.getLogger(name).setLevel(logging.WARNING)
 
     return root_logger
 

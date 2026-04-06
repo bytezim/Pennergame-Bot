@@ -29,50 +29,10 @@
 
 PennerBot ist eine **vollständige Desktop-Anwendung** für die Automatisierung von Pennergame.de-Aktivitäten. Das Projekt kombiniert ein robustes Python-Backend (FastAPI) mit einem modernen React-Frontend.
 
-### 🌟 Hauptfunktionen
-- 🎮 **Browser-Automatisierung** für Pennergame.de
-- 💻 **Native Desktop-App** (Windows .exe) ohne Browser-Installation
-- 🌐 **Modernes Web-Dashboard** mit Echtzeit-Updates
-- 📊 **Responsive Dark-Theme UI** mit Chakra UI
-- 💾 **SQLite-Datenbank** für lokale Datenspeicherung
-- 🐳 **Docker-Support** für einfache Deployment
--  **Developer-friendly** mit TypeScript & Hot-Reload
-
-### 🛠️ Technologie-Stack
-
-#### Backend
-- **FastAPI** - Moderne Python Web-API
-- **SQLAlchemy** - ORM für Datenbankzugriffe
-- **BeautifulSoup4** - HTML-Parsing für Web-Scraping
-- **httpx** - Async HTTP-Client
-- **APScheduler** - Task-Scheduling
-- **aiohttp** - Asynchrone Netzwerk-Bibliothek
-
-#### Frontend & Desktop
-- **React 18** - UI-Framework
-- **TypeScript** - Type-safe JavaScript
-- **Vite** - Ultra-schneller Build-Tool
-- **Tauri 2.0** - Native Desktop-App Framework
-- **Chakra UI** - Komponenten-Bibliothek
-- **Framer Motion** - Animationen
-- **React Icons** - Icon-Bibliothek
-- **Recharts** - Datenvisualisierung
-
-#### Development & Deployment
-- **Python 3.11+** - Programmiersprache
-- **Node.js 20+** - JavaScript Runtime
-- **Docker** - Container-Deployment
-- **PyInstaller** - EXE-Erstellung
-- **SQLite** - Integrierte Datenbank
-
-> ⚠️ **WICHTIGER HINWEIS:** Dies ist ein **Lernprojekt**
-
 ### 🌟 Aktuelle Features
 - ✅ **Automatisiertes Flaschensammeln**
 - ✅ **Weiterbildungen** (ATT, DEF, AGI)
-- ✅ **Modernes Web-Dashboard** mit Echtzeit-Updates
-- ✅ **Responsive Dark-Theme UI**
-- ✅ **Lokale SQLite-Datenbank**
+
 
 ### 🚧 Geplante Features
 - 📍 Unterstützung weiterer Städte
@@ -99,16 +59,6 @@ PennerBot ist eine **vollständige Desktop-Anwendung** für die Automatisierung 
 1. 📥 Lade `PennerBot.exe` von [Releases](../../releases) herunter
 2. 🖱️ Doppelklick auf `PennerBot.exe`
 3. 🌐 Browser öffnet automatisch - **Fertig!** 🎉
-
-**Was passiert:**
-- 🔧 Backend-Server startet auf `http://127.0.0.1:8000`
-- 🎨 Frontend-Server startet auf `http://127.0.0.1:1420`
-- 🌐 Browser öffnet automatisch die Benutzeroberfläche
-- 💾 Datenbank `pennergame.db` wird erstellt
-
-**Systemanforderungen:**
-- 🖥️ Windows 10/11
-- ✅ Keine weiteren Dependencies erforderlich!
 
 ---
 
@@ -141,30 +91,6 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
 ```powershell
 .\manage.ps1 dev
 ```
-
-📚 **Detaillierte Entwickler-Anleitung:** [DEVELOPMENT.md](DEVELOPMENT.md)
-
----
-
-## 🎮 Verwendung
-
-### 1. Bot starten
-1. 🚀 Öffne `PennerBot.exe` (oder `.\manage.ps1 dev` für Entwickler)
-2. ⏳ Warte bis der Browser automatisch öffnet
-3. 🔑 Gib deine Pennergame.de Zugangsdaten ein
-4. ▶️ Klicke "Anmelden"
-
-### 2. Bot-Steuerung
-| Aktion | Beschreibung |
-|--------|--------------|
-| ▶️ **Start/Stop** | Grüner/Roter Button oben rechts |
-| ⚙️ **Einstellungen** | Sidebar → "Einstellungen" |
-| 📋 **Logs** | Sidebar → "Logs" |
-| 📊 **Statistiken** | Sidebar → "Statistiken" |
-
-### 3. Ausloggen
-1. 👤 Klicke auf deinen Benutzernamen (oben rechts)
-2. ✅ Bestätige Logout
 
 ---
 
@@ -214,24 +140,6 @@ cd penner
 |---------|-----------------|
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Entwicklungs-Guide & Best Practices |
 | [BUILD.md](BUILD.md) | Windows-Binary Build-Anleitung |
-
----
-
-## 🔧 Troubleshooting
-
-### ❌ EXE startet nicht
-- 🛡️ **Windows Defender**: Ausnahme für die EXE hinzufügen
-- 🔌 **Port belegt**: Andere Instanzen beenden
-
-### ❌ Backend nicht erreichbar
-- ⏱️ **Warte 5 Sekunden**: Backend braucht Zeit zum Starten
-- 🔌 **Port 8000 belegt**: Andere Dienste auf Port 8000 beenden
-
-### ❌ Browser öffnet nicht
-- 🌐 Manuell öffnen: `http://127.0.0.1:1420`
-
-### ❌ Datenbank-Fehler
-- 🗑️ Lösche `pennergame.db` und starte neu
 
 ---
 
