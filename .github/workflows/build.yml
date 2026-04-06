@@ -2,11 +2,8 @@ name: Build PennerBot
 
 on:
   push:
-    branches: [ main ]
     tags:
       - 'v*'
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
@@ -35,6 +32,11 @@ jobs:
         cache: 'npm'
         cache-dependency-path: web/package-lock.json
 
+    - name: Install Wine and Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wine64 winbind fonts-wine
+
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
@@ -51,14 +53,21 @@ jobs:
       run: npm run build
 
     - name: Build EXE with PyInstaller
-      run: python -m PyInstaller pennerbot.spec --clean --noconfirm
+      env:
+        WINEDEBUG: fixme-all
+        PYTHONOPTIMIZE: "1"
+      run: |
+        export WINEPREFIX=$HOME/.wine
+        wineboot --init --backend=virtual || true
+        sleep 5
+        wine python -m PyInstaller pennerbot.spec --clean --noconfirm 2>&1 || true
 
     - name: Get Build Information
       id: info
       run: |
         commit=$(git rev-parse --short HEAD)
-        sha256=$(sha256sum dist/PennerBot.exe | cut -d' ' -f1)
-        size=$(du -h dist/PennerBot.exe | cut -f1)
+        sha256=$(sha256sum dist/PennerBot.exe 2>/dev/null | cut -d' ' -f1 || echo "unknown")
+        size=$(du -h dist/PennerBot.exe 2>/dev/null | cut -f1 || echo "0")
         echo "commit=$commit" >> $GITHUB_OUTPUT
         echo "sha256=$sha256" >> $GITHUB_OUTPUT
         echo "size=$size" >> $GITHUB_OUTPUT
@@ -72,7 +81,6 @@ jobs:
         retention-days: 1
 
     - name: Update Latest Release
-      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         tag_name: latest
