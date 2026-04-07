@@ -1,6 +1,3 @@
-"""
-Event system for reactive UI updates.
-"""
 import json
 import threading
 from collections import defaultdict
@@ -24,13 +21,18 @@ class EventType:
 
 
 class Event:
+
     def __init__(self, event_type: str, data: Dict[str, Any]):
         self.type = event_type
         self.data = data
         self.timestamp = datetime.now()
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"type": self.type, "data": self.data, "timestamp": self.timestamp.isoformat()}
+        return {
+            "type": self.type,
+            "data": self.data,
+            "timestamp": self.timestamp.isoformat(),
+        }
 
     def to_sse(self) -> str:
         return f"data: {json.dumps(self.to_dict())}\n\n"
@@ -72,9 +74,8 @@ class EventBus:
             if event_type:
                 if queue in self._subscribers[event_type]:
                     self._subscribers[event_type].remove(queue)
-            else:
-                if queue in self._all_subscribers:
-                    self._all_subscribers.remove(queue)
+            elif queue in self._all_subscribers:
+                self._all_subscribers.remove(queue)
 
     def emit(self, event_type: str, data: Dict[str, Any]):
         event = Event(event_type, data)
@@ -111,15 +112,30 @@ def emit_status_changed(activities: Dict[str, Any]):
 
 
 def emit_activity_started(activity_name: str, duration_seconds: int):
-    event_bus.emit(EventType.ACTIVITY_STARTED, {"activity": activity_name, "duration_seconds": duration_seconds})
+    event_bus.emit(
+        EventType.ACTIVITY_STARTED,
+        {"activity": activity_name, "duration_seconds": duration_seconds},
+    )
 
 
-def emit_activity_completed(activity_name: str, activity_data: Dict[str, Any] = None):
-    event_bus.emit(EventType.ACTIVITY_COMPLETED, {"activity": activity_name, "details": activity_data})
+def emit_activity_completed(
+    activity_name: str, activity_data: Optional[Dict[str, Any]] = None
+):
+    event_bus.emit(
+        EventType.ACTIVITY_COMPLETED,
+        {"activity": activity_name, "details": activity_data},
+    )
 
 
-def emit_activity_failed(activity_name: str, activity_data: Dict[str, Any] = None, error: str = None):
-    event_bus.emit(EventType.ACTIVITY_FAILED, {"activity": activity_name, "details": activity_data, "error": error})
+def emit_activity_failed(
+    activity_name: str,
+    activity_data: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None,
+):
+    event_bus.emit(
+        EventType.ACTIVITY_FAILED,
+        {"activity": activity_name, "details": activity_data, "error": error},
+    )
 
 
 def emit_activity_queued(activity_data: Dict[str, Any]):
@@ -131,11 +147,16 @@ def emit_penner_data_updated(penner_data: Dict[str, Any]):
 
 
 def emit_bot_state_changed(is_running: bool, config: Dict[str, Any]):
-    event_bus.emit(EventType.BOT_STATE_CHANGED, {"is_running": is_running, "config": config})
+    event_bus.emit(
+        EventType.BOT_STATE_CHANGED, {"is_running": is_running, "config": config}
+    )
 
 
 def emit_log_added(message: str):
-    event_bus.emit(EventType.LOG_ADDED, {"message": message, "timestamp": datetime.now().isoformat()})
+    event_bus.emit(
+        EventType.LOG_ADDED,
+        {"message": message, "timestamp": datetime.now().isoformat()},
+    )
 
 
 def emit_bottle_price_changed(price_cents: int):
@@ -143,8 +164,12 @@ def emit_bottle_price_changed(price_cents: int):
 
 
 def emit_money_changed(amount: float):
-    formatted_money = f"€{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    event_bus.emit(EventType.MONEY_CHANGED, {"money": formatted_money, "amount": amount})
+    formatted_money = (
+        f"€{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    )
+    event_bus.emit(
+        EventType.MONEY_CHANGED, {"money": formatted_money, "amount": amount}
+    )
 
 
 def emit_promille_changed(promille: float):

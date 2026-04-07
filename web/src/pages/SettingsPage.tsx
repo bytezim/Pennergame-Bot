@@ -35,6 +35,10 @@ interface BotConfigSettings {
   training_pause_minutes: number;
   training_autodrink_enabled: boolean;
   training_target_promille: number;
+  fight_enabled: boolean;
+  fight_pause_minutes: number;
+  rotation_enabled: boolean;
+  rotation_start_with: string;
 }
 
 const BOTTLE_DURATION_OPTIONS = [10, 30, 60, 180, 360, 540, 720];
@@ -79,9 +83,14 @@ export const SettingsPage = () => {
     training_pause_minutes: 1,
     training_autodrink_enabled: false,
     training_target_promille: 3.5,
+    fight_enabled: false,
+    fight_pause_minutes: 1,
+    rotation_enabled: false,
+    rotation_start_with: "bottles",
   });
   const [bottlesExpanded, setBottlesExpanded] = useState(false);
   const [trainingExpanded, setTrainingExpanded] = useState(false);
+  const [fightExpanded, setFightExpanded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
@@ -91,11 +100,17 @@ export const SettingsPage = () => {
     setSavingKey(key);
 
     try {
-      await fetch(getApiUrl("/bot/config"), {
+      const response = await fetch(getApiUrl("/bot/config"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newConfig),
       });
+      if (!response.ok) {
+        console.error("Failed to save config, response:", response.status);
+      } else {
+        const result = await response.json();
+        console.log("Config saved successfully:", key, "=", value, "-> response:", result);
+      }
     } catch (error) {
       console.error("Failed to save:", key, error);
     } finally {
@@ -131,6 +146,10 @@ export const SettingsPage = () => {
             training_pause_minutes: data.config.training_pause_minutes ?? 1,
             training_autodrink_enabled: data.config.training_autodrink_enabled ?? false,
             training_target_promille: data.config.training_target_promille ?? 3.5,
+            fight_enabled: data.config.fight_enabled ?? false,
+            fight_pause_minutes: data.config.fight_pause_minutes ?? 1,
+            rotation_enabled: data.config.rotation_enabled ?? false,
+            rotation_start_with: data.config.rotation_start_with ?? "bottles",
           });
         }
       }
@@ -419,6 +438,112 @@ export const SettingsPage = () => {
                     color="white"
                   />
                 </FormControl>
+              </VStack>
+            </Collapse>
+          </Box>
+
+          <Box>
+            <HStack
+              justify="space-between"
+              p={3}
+              bg="whiteAlpha.50"
+              borderRadius="md"
+              cursor="pointer"
+              onClick={() => setFightExpanded(!fightExpanded)}
+              _hover={{ bg: "whiteAlpha.100" }}
+              transition="background 0.2s"
+            >
+              <HStack spacing={3}>
+                <Icon as={fightExpanded ? FiChevronDown : FiChevronRight} color="teal.400" boxSize={5} />
+                <Text color="gray.200" fontWeight="medium" fontSize="md">⚔️ Kämpfen</Text>
+              </HStack>
+              <Switch
+                size="lg"
+                colorScheme="teal"
+                isChecked={botConfig.fight_enabled}
+                isDisabled={savingKey === "fight_enabled"}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  saveConfig("fight_enabled", e.target.checked);
+                }}
+              />
+            </HStack>
+
+            <Collapse in={fightExpanded && botConfig.fight_enabled} animateOpacity>
+              <VStack align="stretch" spacing={4} mt={4} pl={8}>
+                <Box p={3} bg="red.900" borderRadius="md" borderLeft="3px solid" borderColor="red.400">
+                  <Text color="red.200" fontSize="sm" mb={2}>
+                    ⚠️ <strong>Wichtiger Hinweis:</strong> Kämpfe können riskant sein. Aktiviere diese Funktion nur,
+                    wenn du die Risiken verstehst.
+                  </Text>
+                  <Text color="red.200" fontSize="sm">
+                    Der Bot greift automatisch den schwächsten verfügbaren Gegner an. Stelle sicher,
+                    dass dein Charakter stark genug ist, um zu gewinnen.
+                  </Text>
+                </Box>
+
+                <FormControl>
+                  <FormLabel color="gray.300" fontWeight="medium" fontSize="sm">Pause zwischen Kämpfen</FormLabel>
+                  <Input
+                    type="number"
+                    value={botConfig.fight_pause_minutes}
+                    onChange={(e) => saveConfig("fight_pause_minutes", Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                    min={1}
+                    max={60}
+                    size="md"
+                    bg="gray.700"
+                    border="1px solid"
+                    borderColor="whiteAlpha.300"
+                    color="white"
+                    _hover={{ borderColor: "teal.400" }}
+                    _focus={{ borderColor: "teal.400", boxShadow: "0 0 0 1px var(--chakra-colors-teal-400)" }}
+                  />
+                </FormControl>
+
+                <Box p={3} bg="whiteAlpha.50" borderRadius="md" borderLeft="3px solid" borderColor="orange.400">
+                  <HStack justify="space-between" mb={3}>
+                    <HStack spacing={2}>
+                      <Text color="gray.200" fontWeight="medium" fontSize="sm">🔄 Automatisch abwechseln</Text>
+                      <Text color="gray.400" fontSize="xs">(Kampf ↔ Flaschen sammeln)</Text>
+                    </HStack>
+                    <Switch
+                      size="md"
+                      colorScheme="orange"
+                      isChecked={botConfig.rotation_enabled}
+                      isDisabled={!botConfig.fight_enabled || !botConfig.bottles_enabled}
+                      onChange={(e) => {
+                        if (!botConfig.fight_enabled || !botConfig.bottles_enabled) {
+                          alert("Bitte aktiviere sowohl Kämpfen als auch Flaschen sammeln, um die Rotation zu nutzen.");
+                          return;
+                        }
+                        saveConfig("rotation_enabled", e.target.checked);
+                      }}
+                    />
+                  </HStack>
+                  <Collapse in={botConfig.rotation_enabled} animateOpacity>
+                    <FormControl>
+                      <FormLabel color="gray.300" fontSize="sm">Beginnen mit</FormLabel>
+                      <Select
+                        value={botConfig.rotation_start_with}
+                        onChange={(e) => saveConfig("rotation_start_with", e.target.value)}
+                        size="sm"
+                        bg="gray.700"
+                        border="1px solid"
+                        borderColor="whiteAlpha.300"
+                        color="white"
+                        _hover={{ borderColor: "orange.400" }}
+                      >
+                        <option value="fight">⚔️ Kampf</option>
+                        <option value="bottles">🍾 Flaschen sammeln</option>
+                      </Select>
+                    </FormControl>
+                  </Collapse>
+                  <Text color="gray.400" fontSize="xs" mt={2}>
+                    {!botConfig.fight_enabled || !botConfig.bottles_enabled 
+                      ? "Aktiviere Kampf und Flaschen sammeln, um die Rotation nutzen zu können."
+                      : "Der Bot wechselt automatisch zwischen Kampf und Flaschen sammeln."}
+                  </Text>
+                </Box>
               </VStack>
             </Collapse>
           </Box>

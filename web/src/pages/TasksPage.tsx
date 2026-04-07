@@ -55,6 +55,11 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
   const [skillsData, setSkillsData] = useState<SkillsData | null>(null);
   const [skillActionLoading, setSkillActionLoading] = useState(false);
   const [skillTimeRemaining, setSkillTimeRemaining] = useState<string>("");
+
+  // Kampf State
+  const [isFighting, setIsFighting] = useState(false);
+  const [fightActionLoading, setFightActionLoading] = useState(false);
+  const [fightSecondsRemaining, setFightSecondsRemaining] = useState<number | null>(null);
   
   // Drinks State
   const [drinksData, setDrinksData] = useState<DrinksData | null>(null);
@@ -73,6 +78,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     if (status?.activities) {
       setIsCollecting(status.activities.bottles_running || false);
       setSecondsRemaining(status.activities.bottles_seconds_remaining || null);
+      setIsFighting(status.activities.fight_running || false);
+      setFightSecondsRemaining(status.activities.fight_seconds_remaining || null);
     }
   }, [status?.activities]);
 
@@ -413,6 +420,98 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleStartFight = async () => {
+    setFightActionLoading(true);
+    try {
+      const response = await fetch(getApiUrl("/actions/fight/start"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: "Kampf gestartet!",
+          description: `Greife ${data.opponent || "einen Spieler"} an!`,
+          status: "success",
+          duration: 5000,
+          isClosable: true,
+        });
+        // OPTIMIERUNG: Kein checkStatus() - SSE updated automatisch + onRefresh macht refresh_status
+        // Nur onRefresh für finale Synchronisation
+        if (onRefresh) {
+          await onRefresh();
+        }
+      } else {
+        toast({
+          title: "Fehler",
+          description: data.message || "Kampf konnte nicht gestartet werden",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Fehler",
+        description: "Verbindung zum Server fehlgeschlagen",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setFightActionLoading(false);
+    }
+  };
+
+  const handleCancelFight = async () => {
+    if (!confirm("Möchtest du wirklich den laufenden Kampf abbrechen?")) return;
+
+    setFightActionLoading(true);
+    try {
+      const response = await fetch(getApiUrl("/actions/fight/cancel"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: "Kampf abgebrochen!",
+          description: data.message,
+          status: "info",
+          duration: 5000,
+          isClosable: true,
+        });
+        // OPTIMIERUNG: Kein checkStatus() - SSE updated automatisch + onRefresh macht refresh_status
+        // Nur onRefresh für finale Synchronisation
+        if (onRefresh) {
+          await onRefresh();
+        }
+      } else {
+        toast({
+          title: "Fehler",
+          description: data.message || "Kampf konnte nicht abgebrochen werden",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Fehler",
+        description: "Verbindung zum Server fehlgeschlagen",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setFightActionLoading(false);
     }
   };
 
@@ -1217,7 +1316,127 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         </VStack>
       </DashboardCard>
 
-      {/* Weitere Aktionen (Platzhalter) */}
+      {/* Kampf Aktion */}
+      <DashboardCard title="Kämpfen" icon={FiZap}>
+        <VStack align="stretch" spacing={4} py={4}>
+          {/* Status-Badges */}
+          <HStack spacing={3}>
+            {isFighting ? (
+              <Badge colorScheme="red" fontSize="md" px={3} py={1}>
+                ⚔️ Kämpft gerade...
+              </Badge>
+            ) : (
+              <Badge colorScheme="gray" fontSize="md" px={3} py={1}>
+                Bereit
+              </Badge>
+            )}
+          </HStack>
+
+          {/* Timer beim Kämpfen */}
+          {isFighting && fightSecondsRemaining !== null && (
+            <Box
+              p={4}
+              bg="red.900"
+              borderRadius="md"
+              borderWidth={1}
+              borderColor="red.600"
+            >
+              <VStack spacing={2} align="stretch">
+                <HStack justify="space-between">
+                  <Text color="red.300" fontWeight="bold">
+                    ⏱️ Verbleibende Zeit:
+                  </Text>
+                  <Text color="white" fontSize="xl" fontWeight="bold">
+                    {formatTime(fightSecondsRemaining)}
+                  </Text>
+                </HStack>
+                <Box
+                  bg="gray.700"
+                  h="6px"
+                  borderRadius="full"
+                  overflow="hidden"
+                >
+                  <Box
+                    bg="red.400"
+                    h="100%"
+                    w={`${Math.max(0, Math.min(100, (fightSecondsRemaining / (15 * 60)) * 100))}%`}
+                    transition="width 1s linear"
+                  />
+                </Box>
+              </VStack>
+            </Box>
+          )}
+
+          <Divider />
+
+          {/* Beschreibung */}
+          <Box>
+            <Text color="gray.300" fontSize="sm" mb={3}>
+              Der Bot sucht automatisch den schwächsten verfügbaren Gegner und greift ihn an.
+              Stelle sicher, dass der Einkaufswagen geleert ist, bevor du kämpfst!
+            </Text>
+          </Box>
+
+          {/* Warnung */}
+          <Box p={3} bg="orange.900" borderRadius="md" borderWidth={1} borderColor="orange.600">
+            <Text fontSize="xs" color="orange.200">
+              ⚠️ <strong>Wichtig:</strong> Der Einkaufswagen muss vor dem Kampf geleert werden,
+              sonst kann der Angriff nicht gestartet werden.
+            </Text>
+          </Box>
+
+          {/* Aktions-Buttons */}
+          {isFighting ? (
+            <VStack spacing={3}>
+              <Badge colorScheme="red" fontSize="md" px={3} py={2} textAlign="center">
+                ⚔️ Kampf läuft bereits...
+              </Badge>
+              <Button
+                colorScheme="red"
+                variant="outline"
+                size="lg"
+                onClick={handleCancelFight}
+                isLoading={fightActionLoading}
+                loadingText="Breche ab..."
+                leftIcon={<Text fontSize="lg">🛑</Text>}
+                width="full"
+              >
+                🛑 Kampf abbrechen
+              </Button>
+            </VStack>
+          ) : (
+            <Button
+              colorScheme="red"
+              size="lg"
+              onClick={handleStartFight}
+              isLoading={fightActionLoading}
+              loadingText="Starte Kampf..."
+              leftIcon={<Text fontSize="lg">⚔️</Text>}
+              width="full"
+              isDisabled={isFighting}
+            >
+              Kampf starten
+            </Button>
+          )}
+
+          {/* Status aktualisieren */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (onRefresh) {
+                onRefresh();
+              }
+            }}
+            color="gray.400"
+            _hover={{ color: "white" }}
+          >
+            Status aktualisieren
+          </Button>
+        </VStack>
+      </DashboardCard>
+
+      {/* Konzentrationsmodus */}
       <DashboardCard title="Konzentrationsmodus" icon={FiZap}>
         <VStack align="stretch" spacing={4} py={4}>
           {/* Status-Badges */}

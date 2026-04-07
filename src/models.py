@@ -1,8 +1,15 @@
 from datetime import datetime
-
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+)
 from sqlalchemy.orm import relationship
-
 from .db import Base
 from .constants import (
     VALID_TRAINING_SKILLS,
@@ -10,24 +17,28 @@ from .constants import (
     DEFAULT_TRAINING_MAX_LEVEL,
     BOTTLE_ENABLED_DEFAULT,
     TRAINING_ENABLED_DEFAULT,
+    FIGHT_ENABLED_DEFAULT,
     DEFAULT_BOTTLE_DURATION,
     DEFAULT_BOTTLE_PAUSE,
     AUTOSELL_ENABLED_DEFAULT,
     DEFAULT_AUTOSELL_MIN_PRICE,
     AUTODRINK_ENABLED_DEFAULT,
+    DEFAULT_FIGHT_PAUSE,
+    ROTATION_ENABLED_DEFAULT,
+    ROTATION_DEFAULT_START,
 )
 
 
 class Log(Base):
     __tablename__ = "logs"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, index=True)
     message = Column(String)
 
 
 class IndexLogTimestamp(Index, Base):
-    __tablename__ = 'idx_logs_timestamp'
+    __tablename__ = "idx_logs_timestamp"
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, index=True)
     message = Column(String)
@@ -99,7 +110,7 @@ class Settings(Base):
 
 class BottlePrice(Base):
     __tablename__ = "bottle_prices"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     price_cents = Column(Integer, nullable=False)
@@ -107,7 +118,7 @@ class BottlePrice(Base):
 
 class MoneyHistory(Base):
     __tablename__ = "money_history"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     amount = Column(Float, nullable=False)
@@ -115,7 +126,7 @@ class MoneyHistory(Base):
 
 class RankHistory(Base):
     __tablename__ = "rank_history"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     rank = Column(Integer, nullable=False)
@@ -123,7 +134,7 @@ class RankHistory(Base):
 
 class PointsHistory(Base):
     __tablename__ = "points_history"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.now, nullable=False, index=True)
     points = Column(Integer, nullable=False)
@@ -168,15 +179,37 @@ class BotConfig(Base):
     last_started = Column(DateTime, nullable=True)
     last_stopped = Column(DateTime, nullable=True)
     bottles_enabled = Column(Boolean, default=BOTTLE_ENABLED_DEFAULT, nullable=False)
-    bottles_duration_minutes = Column(Integer, default=DEFAULT_BOTTLE_DURATION, nullable=False)
-    bottles_pause_minutes = Column(Integer, default=DEFAULT_BOTTLE_PAUSE, nullable=False)
-    bottles_autosell_enabled = Column(Boolean, default=AUTOSELL_ENABLED_DEFAULT, nullable=False)
-    bottles_min_price = Column(Integer, default=DEFAULT_AUTOSELL_MIN_PRICE, nullable=False)
+    bottles_duration_minutes = Column(
+        Integer, default=DEFAULT_BOTTLE_DURATION, nullable=False
+    )
+    bottles_pause_minutes = Column(
+        Integer, default=DEFAULT_BOTTLE_PAUSE, nullable=False
+    )
+    bottles_autosell_enabled = Column(
+        Boolean, default=AUTOSELL_ENABLED_DEFAULT, nullable=False
+    )
+    bottles_min_price = Column(
+        Integer, default=DEFAULT_AUTOSELL_MIN_PRICE, nullable=False
+    )
     training_enabled = Column(Boolean, default=TRAINING_ENABLED_DEFAULT, nullable=False)
     training_skills = Column(String, default='["att", "def", "agi"]', nullable=False)
-    training_att_max_level = Column(Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False)
-    training_def_max_level = Column(Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False)
-    training_agi_max_level = Column(Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False)
-    training_pause_minutes = Column(Integer, default=DEFAULT_TRAINING_PAUSE, nullable=False)
-    training_autodrink_enabled = Column(Boolean, default=AUTODRINK_ENABLED_DEFAULT, nullable=False)
+    training_att_max_level = Column(
+        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
+    )
+    training_def_max_level = Column(
+        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
+    )
+    training_agi_max_level = Column(
+        Integer, default=DEFAULT_TRAINING_MAX_LEVEL, nullable=False
+    )
+    training_pause_minutes = Column(
+        Integer, default=DEFAULT_TRAINING_PAUSE, nullable=False
+    )
+    training_autodrink_enabled = Column(
+        Boolean, default=AUTODRINK_ENABLED_DEFAULT, nullable=False
+    )
     training_target_promille = Column(Float, default=3.5, nullable=False)
+    fight_enabled = Column(Boolean, default=FIGHT_ENABLED_DEFAULT, nullable=False)
+    fight_pause_minutes = Column(Integer, default=DEFAULT_FIGHT_PAUSE, nullable=False)
+    rotation_enabled = Column(Boolean, default=ROTATION_ENABLED_DEFAULT, nullable=False)
+    rotation_start_with = Column(String, default=ROTATION_DEFAULT_START, nullable=False)
