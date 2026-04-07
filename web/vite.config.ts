@@ -14,4 +14,17 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-chakra': ['@chakra-ui/react', '@emotion/react', '@emotion/styled'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-recharts': ['recharts'],
+          'vendor-icons': ['react-icons'],
+        },
+      },
+    },
+  },
 });
