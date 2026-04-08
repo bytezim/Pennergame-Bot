@@ -1282,7 +1282,14 @@ class PennerBot:
                 self.log(
                     f"[AUTO] Current status: bottles_running={self.bottles_running}, skill_running={self.skill_running}, fight_running={self.fight_running}"
                 )
-                if config.bottles_enabled and (not self.bottles_running):
+                rotation_enabled = getattr(config, "rotation_enabled", False)
+                rotation_start_with = getattr(config, "rotation_start_with", "bottles")
+                should_start_bottles = (
+                    config.bottles_enabled 
+                    and not self.bottles_running
+                    and not (rotation_enabled and rotation_start_with == "fight")
+                )
+                if should_start_bottles:
                     self.log("[AUTO] Starting bottle collecting...")
                     from .tasks import search_bottles
 
@@ -1293,7 +1300,12 @@ class PennerBot:
                         self.log(
                             f"[AUTO] Failed to start bottle collecting: {result.get('message')}"
                         )
-                if config.training_enabled and (not self.skill_running):
+                should_start_training = (
+                    config.training_enabled 
+                    and not self.skill_running
+                    and not (rotation_enabled and rotation_start_with == "bottles")
+                )
+                if should_start_training:
                     self.log("[AUTO] Starting training...")
                     autodrink_enabled = getattr(
                         config, "training_autodrink_enabled", False
@@ -1341,7 +1353,13 @@ class PennerBot:
                         self.log(
                             f"[AUTO] Failed to start training: {result.get('message')}"
                         )
-                if config.fight_enabled and (not self.fight_running) and (not self.bottles_running):
+                should_start_fight = (
+                    config.fight_enabled 
+                    and not self.fight_running 
+                    and not self.bottles_running
+                    and not (rotation_enabled and rotation_start_with == "bottles")
+                )
+                if should_start_fight:
                     self.log("[AUTO] Starting fight...")
                     from .tasks import start_fight
 

@@ -44,9 +44,6 @@ PennerBot ist eine **vollständige Desktop-Anwendung** für die Automatisierung 
 
 ![Dashboard](/doc/Screenshot_Dash.png?raw=true "Dashboard")
 ![Settings](/doc/Screenshot_Settings.png?raw=true "Settings")
-![Statistics](/doc/Screenshot_Stats.png?raw=true "Statistics")
-![Tasks](/doc/Screenshot_Tasks.png?raw=true "Tasks")
-![Debug](/doc/Screenshot_Debug.png?raw=true "Debug")
 
 ---
 
