@@ -391,6 +391,8 @@ def _bot_collect_bottles_task():
                 from src.events import emit_activity_started, emit_status_changed
                 current_bot = get_bot()
                 bottles_seconds = getattr(current_bot, "bottles_seconds_remaining", duration_minutes * 60)
+                current_bot.bottles_running = True
+                current_bot.bottles_seconds_remaining = bottles_seconds
                 emit_activity_started("bottles", bottles_seconds)
                 emit_status_changed(get_activity_status(current_bot))
             except Exception as e:
@@ -529,6 +531,8 @@ def _bot_training_task():
                 from src.events import emit_activity_started, emit_status_changed
                 current_bot = get_bot()
                 skill_seconds = getattr(current_bot, "skill_seconds_remaining", 300)
+                current_bot.skill_running = True
+                current_bot.skill_seconds_remaining = skill_seconds
                 emit_activity_started("skill", skill_seconds)
                 emit_status_changed(get_activity_status(current_bot))
             except Exception as e:
@@ -1870,6 +1874,8 @@ def _bot_fight_task():
                 from src.events import emit_activity_started, emit_status_changed
                 current_bot = get_bot()
                 fight_seconds = getattr(current_bot, "fight_seconds_remaining", 600)
+                current_bot.fight_running = True
+                current_bot.fight_seconds_remaining = fight_seconds
                 emit_activity_started("fight", fight_seconds)
                 emit_status_changed(get_activity_status(current_bot))
             except Exception as e:
