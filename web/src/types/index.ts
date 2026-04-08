@@ -1,5 +1,16 @@
 // Type Definitions for PennerBot Dashboard
 
+export interface UpcomingActivity {
+  type: string;
+  name: string;
+  status: "running" | "scheduled" | "ready";
+  remaining_seconds?: number;
+  end_time?: string;
+  delay_minutes?: number;
+  after?: string;
+  start_time?: string;
+}
+
 export interface ActivityStatus {
   skill_running: boolean;
   skill_seconds_remaining: number | null;

@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Dict, Optional
 import httpx
 import uvicorn
@@ -386,6 +387,14 @@ def _bot_collect_bottles_task():
         result = search_bottles(get_bot(), duration_minutes)
         if result.get("success"):
             get_bot().log(f"Bottle collection started: {result.get('message', '')}")
+            try:
+                from src.events import emit_activity_started, emit_status_changed
+                current_bot = get_bot()
+                bottles_seconds = getattr(current_bot, "bottles_seconds_remaining", duration_minutes * 60)
+                emit_activity_started("bottles", bottles_seconds)
+                emit_status_changed(get_activity_status(current_bot))
+            except Exception as e:
+                get_bot().log(f"Failed to emit bottle start events: {e}")
         else:
             get_bot().log(f"Bottle collection failed: {result.get('message', '')}")
         with get_session() as s:
@@ -516,6 +525,14 @@ def _bot_training_task():
         result = start_training(get_bot(), selected_skill)
         if result.get("success"):
             get_bot().log(f"Training started: {result.get('message', '')}")
+            try:
+                from src.events import emit_activity_started, emit_status_changed
+                current_bot = get_bot()
+                skill_seconds = getattr(current_bot, "skill_seconds_remaining", 300)
+                emit_activity_started("skill", skill_seconds)
+                emit_status_changed(get_activity_status(current_bot))
+            except Exception as e:
+                get_bot().log(f"Failed to emit training start events: {e}")
             if autodrink_enabled:
                 get_bot().log("🍔 Auto-Essen aktiviert - nüchtere aus...")
                 try:
@@ -1192,6 +1209,115 @@ def activities_overview() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/activities/upcoming")
+def activities_upcoming() -> Dict[str, Any]:
+    from datetime import timedelta
+    try:
+        current_bot = get_bot()
+        if not current_bot.logged_in:
+            raise HTTPException(status_code=401, detail="Not logged in")
+        
+        config = get_bot_config()
+        activities = []
+        
+        bottles_running = getattr(current_bot, "bottles_running", False)
+        skill_running = getattr(current_bot, "skill_running", False)
+        fight_running = getattr(current_bot, "fight_running", False)
+        
+        bottles_remaining = getattr(current_bot, "bottles_seconds_remaining", None)
+        skill_remaining = getattr(current_bot, "skill_seconds_remaining", None)
+        fight_remaining = getattr(current_bot, "fight_seconds_remaining", None)
+        
+        now = datetime.now()
+        
+        if bottles_running and bottles_remaining and bottles_remaining > 0:
+            end_time = now + timedelta(seconds=bottles_remaining)
+            activities.append({
+                "type": "bottles",
+                "name": "Pfandflaschen sammeln",
+                "status": "running",
+                "remaining_seconds": bottles_remaining,
+                "end_time": end_time.isoformat(),
+            })
+            if config.get("bottles_enabled") and config.get("bottles_pause_minutes", 1) > 0:
+                pause = config["bottles_pause_minutes"]
+                activities.append({
+                    "type": "bottles_pause",
+                    "name": "Pause (Pfandflaschen)",
+                    "status": "scheduled",
+                    "after": "bottles",
+                    "delay_minutes": pause,
+                    "start_time": end_time.isoformat(),
+                })
+        elif config.get("bottles_enabled"):
+            activities.append({
+                "type": "bottles",
+                "name": "Pfandflaschen sammeln",
+                "status": "ready",
+                "delay_minutes": config.get("bottles_pause_minutes", 1),
+            })
+        
+        if skill_running and skill_remaining and skill_remaining > 0:
+            end_time = now + timedelta(seconds=skill_remaining)
+            activities.append({
+                "type": "skill",
+                "name": "Weiterbildung",
+                "status": "running",
+                "remaining_seconds": skill_remaining,
+                "end_time": end_time.isoformat(),
+            })
+            if config.get("training_enabled") and config.get("training_pause_minutes", 1) > 0:
+                pause = config["training_pause_minutes"]
+                activities.append({
+                    "type": "skill_pause",
+                    "name": "Pause (Weiterbildung)",
+                    "status": "scheduled",
+                    "after": "skill",
+                    "delay_minutes": pause,
+                    "start_time": end_time.isoformat(),
+                })
+        elif config.get("training_enabled"):
+            activities.append({
+                "type": "skill",
+                "name": "Weiterbildung",
+                "status": "ready",
+                "delay_minutes": config.get("training_pause_minutes", 1),
+            })
+        
+        if fight_running and fight_remaining and fight_remaining > 0:
+            end_time = now + timedelta(seconds=fight_remaining)
+            activities.append({
+                "type": "fight",
+                "name": "Kampf",
+                "status": "running",
+                "remaining_seconds": fight_remaining,
+                "end_time": end_time.isoformat(),
+            })
+            if config.get("fight_enabled") and config.get("fight_pause_minutes", 1) > 0:
+                pause = config["fight_pause_minutes"]
+                activities.append({
+                    "type": "fight_pause",
+                    "name": "Pause (Kampf)",
+                    "status": "scheduled",
+                    "after": "fight",
+                    "delay_minutes": pause,
+                    "start_time": end_time.isoformat(),
+                })
+        elif config.get("fight_enabled"):
+            activities.append({
+                "type": "fight",
+                "name": "Kampf",
+                "status": "ready",
+                "delay_minutes": config.get("fight_pause_minutes", 1),
+            })
+        
+        return {"upcoming": activities}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/logs")
 def get_logs(limit: int = 50) -> Dict[str, Any]:
     try:
@@ -1740,9 +1866,14 @@ def _bot_fight_task():
         result = start_fight(get_bot())
         if result.get("success"):
             get_bot().log(f"✓ {result.get('message')}")
-            # Emit status changed event to update UI
-            from src.events import emit_status_changed
-            emit_status_changed(get_activity_status(get_bot()))
+            try:
+                from src.events import emit_activity_started, emit_status_changed
+                current_bot = get_bot()
+                fight_seconds = getattr(current_bot, "fight_seconds_remaining", 600)
+                emit_activity_started("fight", fight_seconds)
+                emit_status_changed(get_activity_status(current_bot))
+            except Exception as e:
+                get_bot().log(f"Failed to emit fight start events: {e}")
         else:
             get_bot().log(f"✗ Fight failed: {result.get('message')}")
         with get_session() as s:

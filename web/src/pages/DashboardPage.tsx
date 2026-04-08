@@ -1,9 +1,10 @@
-import { VStack, SimpleGrid, Button, Icon, HStack, Flex, Text, Code, Progress, Box, Badge } from "@chakra-ui/react";
-import { FiPlay, FiPause, FiRefreshCw, FiUser, FiDollarSign, FiTrendingUp, FiShield, FiAward, FiActivity, FiPackage, FiClock } from "react-icons/fi";
+import { VStack, SimpleGrid, Button, Icon, HStack, Flex, Text, Code, Progress, Box, Badge, SimpleGrid as Grid, Spinner } from "@chakra-ui/react";
+import { FiPlay, FiPause, FiRefreshCw, FiUser, FiDollarSign, FiTrendingUp, FiShield, FiAward, FiActivity, FiPackage, FiClock, FiCalendar } from "react-icons/fi";
 import { DashboardCard } from "../components/DashboardCard";
 import { StatCard } from "../components/StatCard";
-import { Status, Penner, Log } from "../types";
+import { Status, Penner, Log, UpcomingActivity } from "../types";
 import { useState, useEffect } from "react";
+import { getApiUrl } from "../utils/api";
 
 interface DashboardPageProps {
   status: Status | null;
@@ -33,6 +34,8 @@ export const DashboardPage = ({
   onRefresh,
 }: DashboardPageProps) => {
   const activities = status?.activities;
+  const [upcomingActivities, setUpcomingActivities] = useState<UpcomingActivity[]>([]);
+  const [upcomingLoading, setUpcomingLoading] = useState(false);
 
   // Lokale Timer-States für Countdown
   const [bottlesTimer, setBottlesTimer] = useState<number | null>(null);
@@ -74,6 +77,29 @@ export const DashboardPage = ({
 
     return () => clearInterval(interval);
   }, []);
+
+  const fetchUpcomingActivities = async () => {
+    setUpcomingLoading(true);
+    try {
+      const response = await fetch(getApiUrl("/activities/upcoming"));
+      if (response.ok) {
+        const data = await response.json();
+        setUpcomingActivities(data.upcoming || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch upcoming activities:", error);
+    } finally {
+      setUpcomingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (status?.logged_in) {
+      fetchUpcomingActivities();
+      const interval = setInterval(fetchUpcomingActivities, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [status?.logged_in]);
 
   return (
     <VStack align="stretch" spacing={6} className="fade-in">
@@ -172,6 +198,69 @@ export const DashboardPage = ({
             </Box>
           )}
         </VStack>
+      </DashboardCard>
+
+      {/* Anstehende Aktivitäten */}
+      <DashboardCard title="Anstehende Aktivitäten" icon={FiCalendar}>
+        {upcomingLoading ? (
+          <HStack justify="center" py={4}>
+            <Spinner size="sm" color="teal.400" />
+            <Text color="gray.400" fontSize="sm">Lade...</Text>
+          </HStack>
+        ) : upcomingActivities.length === 0 ? (
+          <Text color="gray.500" textAlign="center" py={4}>
+            Keine anstehenden Aktivitäten
+          </Text>
+        ) : (
+          <VStack spacing={3} align="stretch">
+            {upcomingActivities.map((activity, index) => (
+              <HStack 
+                key={index}
+                p={3} 
+                bg={activity.status === "running" ? "teal.900" : activity.status === "scheduled" ? "orange.900" : "gray.700"}
+                borderRadius="md"
+                borderLeft="4px solid"
+                borderLeftColor={
+                  activity.status === "running" ? "teal.400" : 
+                  activity.status === "scheduled" ? "orange.400" : "gray.500"
+                }
+              >
+                <VStack align="start" spacing={1} flex={1}>
+                  <HStack>
+                    <Badge 
+                      colorScheme={
+                        activity.status === "running" ? "teal" : 
+                        activity.status === "scheduled" ? "orange" : "gray"
+                      }
+                      fontSize="xs"
+                    >
+                      {activity.status === "running" ? "⏱️ Läuft" : 
+                       activity.status === "scheduled" ? "📅 Geplant" : "✅ Bereit"}
+                    </Badge>
+                    <Text color="white" fontWeight="semibold" fontSize="sm">
+                      {activity.name}
+                    </Text>
+                  </HStack>
+                  {activity.remaining_seconds && (
+                    <Text color="gray.400" fontSize="xs">
+                      Noch: {formatTime(activity.remaining_seconds)}
+                    </Text>
+                  )}
+                  {activity.delay_minutes && activity.status !== "running" && (
+                    <Text color="gray.400" fontSize="xs">
+                      Start in: {activity.delay_minutes} Min.
+                    </Text>
+                  )}
+                </VStack>
+                {activity.status === "running" && activity.remaining_seconds && (
+                  <Badge colorScheme="teal" fontSize="sm">
+                    {formatTime(activity.remaining_seconds)}
+                  </Badge>
+                )}
+              </HStack>
+            ))}
+          </VStack>
+        )}
       </DashboardCard>
 
       {/* Stats Overview */}
