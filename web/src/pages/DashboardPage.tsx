@@ -1,4 +1,4 @@
-import { VStack, SimpleGrid, Button, Icon, HStack, Flex, Text, Code, Progress, Box, Badge, SimpleGrid as Grid, Spinner } from "@chakra-ui/react";
+import { VStack, SimpleGrid, Button, Icon, HStack, Flex, Text, Code, Progress, Box, Badge, Spinner } from "@chakra-ui/react";
 import { FiPlay, FiPause, FiRefreshCw, FiUser, FiDollarSign, FiTrendingUp, FiShield, FiAward, FiActivity, FiPackage, FiClock, FiCalendar } from "react-icons/fi";
 import { DashboardCard } from "../components/DashboardCard";
 import { StatCard } from "../components/StatCard";
