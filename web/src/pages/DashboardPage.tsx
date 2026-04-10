@@ -96,7 +96,7 @@ export const DashboardPage = ({
   useEffect(() => {
     if (status?.logged_in) {
       fetchUpcomingActivities();
-      const interval = setInterval(fetchUpcomingActivities, 30000);
+      const interval = setInterval(fetchUpcomingActivities, 60000);
       return () => clearInterval(interval);
     }
   }, [status?.logged_in]);

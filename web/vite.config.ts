@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   server: {
+    logLevel: 'silent',
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

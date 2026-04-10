@@ -18,7 +18,6 @@ def _get_perf_monitor():
 
 
 class CacheEntry:
-
     def __init__(self, value: Any, ttl: int):
         self.value = value
         self.expires_at = time.time() + ttl
@@ -28,7 +27,6 @@ class CacheEntry:
 
 
 class Cache:
-
     def __init__(self, max_size: int = 1000):
         self._cache: Dict[str, CacheEntry] = {}
         self._max_size = max_size

@@ -18,13 +18,60 @@ function App() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [backendReady, setBackendReady] = useState(false);
   
   const toast = useToast();
 
-  // Check authentication status on mount
+  // Wait for backend to be ready before making API calls
   useEffect(() => {
-    checkAuthStatus();
+    const waitForBackend = async () => {
+      const maxAttempts = 30;
+      const baseDelay = 1000;
+      
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const response = await fetch("/api/health", { 
+            method: "GET",
+            signal: AbortSignal.timeout(3000) 
+          });
+          if (response.ok) {
+            const data = await response.json();
+            // If backend is initializing, wait for it to be ready
+            if (data.status === "initializing") {
+              // Continue waiting
+            } else if (data.status === "ready") {
+              setBackendReady(true);
+              return;
+            } else {
+              // Assume ready if status field doesn't exist
+              setBackendReady(true);
+              return;
+            }
+          }
+        } catch {
+          // Backend not ready yet
+        }
+        
+        const delay = baseDelay * Math.pow(2, Math.min(attempt, 4));
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      setBackendReady(true);
+    };
+    
+    waitForBackend();
   }, []);
+
+  // Check authentication status on mount (only after backend is ready)
+  useEffect(() => {
+    if (!backendReady) return;
+    
+    const timer = setTimeout(() => {
+      checkAuthStatus();
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [backendReady]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -148,10 +195,10 @@ function App() {
         });
       }
 
-      // Hole vollständige Logs nur alle 30s
+      // Hole vollständige Logs nur alle 60s
       const now = Date.now();
       const lastLogFetch = (window as any).__lastLogFetch || 0;
-      if (now - lastLogFetch > 30000) {
+      if (now - lastLogFetch > 60000) {
         try {
           const logsRes = await fetch("/api/logs");
           if (logsRes.ok) {
@@ -163,7 +210,6 @@ function App() {
           console.warn('Failed to fetch logs:', logsError);
         }
       }
-
     } catch (error: any) {
       console.error("Failed to fetch data:", error);
       

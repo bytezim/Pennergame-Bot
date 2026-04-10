@@ -7,7 +7,6 @@ logger = get_logger(__name__)
 
 
 class APIError(Exception):
-
     def __init__(
         self,
         message: str,
@@ -21,13 +20,11 @@ class APIError(Exception):
 
 
 class AuthenticationError(APIError):
-
     def __init__(self, message: str = "Authentication failed"):
         super().__init__(message=message, status_code=status.HTTP_401_UNAUTHORIZED)
 
 
 class InputValidationError(APIError):
-
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message,
@@ -37,13 +34,11 @@ class InputValidationError(APIError):
 
 
 class NotFoundError(APIError):
-
     def __init__(self, message: str = "Resource not found"):
         super().__init__(message=message, status_code=status.HTTP_404_NOT_FOUND)
 
 
 class ConflictError(APIError):
-
     def __init__(self, message: str):
         super().__init__(message=message, status_code=status.HTTP_409_CONFLICT)
 

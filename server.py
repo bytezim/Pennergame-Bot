@@ -6,7 +6,6 @@ import threading
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, Optional
-import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,20 +52,28 @@ def get_activity_status(bot):
     }
 
 
-@asynccontextmanager
 def event_handler_worker():
+    """
+    Worker thread that handles internal events, particularly activity completions
+    to reschedule automated tasks.
+    """
     from queue import Empty
 
+    # Subscribe to activity completion events
     queue = event_bus.subscribe("activity_completed")
+
     logger.info("Event handler thread started")
+
     while True:
         try:
-            event = queue.get(timeout=1.0)
+            event = queue.get(timeout=1.0)  # Block with timeout to allow thread shutdown
             activity_name = event.data.get("activity")
+
             if activity_name == "bottles":
                 logger.info(
                     "Bottle collection completed in game, checking if we need to reschedule..."
                 )
+                # Check if bot is running and bottles are enabled
                 try:
                     with get_session() as s:
                         from src.models import BotConfig
@@ -75,7 +82,9 @@ def event_handler_worker():
                         if config and config.is_running and config.bottles_enabled:
                             if config.rotation_enabled:
                                 next_activity = "fight"
-                                logger.info(f"Rotation enabled - scheduling {next_activity} next")
+                                logger.info(
+                                    f"Rotation enabled - scheduling {next_activity} next"
+                                )
                                 _schedule_next_fight_task()
                             else:
                                 _schedule_next_bottles_task()
@@ -115,17 +124,24 @@ def event_handler_worker():
                 try:
                     with get_session() as s:
                         from src.models import BotConfig
+
                         config = s.query(BotConfig).first()
                         if config and config.is_running and config.fight_enabled:
                             if config.rotation_enabled:
                                 next_activity = "bottles"
-                                logger.info(f"Rotation enabled - scheduling {next_activity} next")
+                                logger.info(
+                                    f"Rotation enabled - scheduling {next_activity} next"
+                                )
                                 _schedule_next_bottles_task()
                             else:
                                 _schedule_next_fight_task()
-                                logger.info("Rescheduled next fight after game completion")
+                                logger.info(
+                                    "Rescheduled next fight after game completion"
+                                )
                         else:
-                            logger.debug("Bot not running or fight disabled, skipping reschedule")
+                            logger.debug(
+                                "Bot not running or fight disabled, skipping reschedule"
+                            )
                 except Exception as e:
                     logger.error(f"Error rescheduling after fight completion: {e}")
         except Empty:
@@ -134,35 +150,57 @@ def event_handler_worker():
             logger.error(f"Event handler error: {e}")
 
 
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
-    try:
-        from src.db import init_db
 
-        init_db()
-    except Exception:
-        pass
-    try:
-        bot = get_bot()
-        logger.info("🚀 Bot initialized on startup")
-        logger.info("📊 Bot bereit - Status wird nach Login aktualisiert")
-    except Exception as e:
-        logger.warning(f"Bot initialization deferred: {e}")
-    try:
-        logger.info("🚀 Starting scheduler...")
-        start_scheduler()
-        logger.info(f"✅ Scheduler started: {scheduler.running}")
-        config = get_bot_config()
-        manage_scheduler_jobs(config)
-        event_handler_thread = threading.Thread(
-            target=event_handler_worker, daemon=True
-        )
-        event_handler_thread.start()
-        logger.info("✅ Event handler thread started")
-        logger.info("✅ Startup initialization completed")
-    except Exception as e:
-        logger.error(f"Scheduler startup failed: {e}")
+    # Track initialization status for API endpoints
+    app.state.initializing = True
+    app.state.initialized = False
+
+    def complete_initialization():
+        try:
+            # Initialize database
+            from src.db import init_db
+            init_db()
+            logger.info("✅ Database initialized")
+
+            # Initialize bot
+            get_bot()
+            logger.info("🚀 Bot initialized")
+            logger.info("📊 Bot bereit - Status wird nach Login aktualisiert")
+
+            # Start scheduler and jobs
+            logger.info("🚀 Starting scheduler...")
+            start_scheduler()
+            logger.info(f"✅ Scheduler started: {scheduler.running}")
+            config = get_bot_config()
+            manage_scheduler_jobs(config)
+            logger.info("✅ Scheduler jobs configured")
+
+            # Start event handler thread
+            event_handler_thread = threading.Thread(
+                target=event_handler_worker, daemon=True
+            )
+            event_handler_thread.start()
+            logger.info("✅ Event handler thread started")
+
+            app.state.initialized = True
+            logger.info("✅ Startup initialization completed")
+        except Exception as e:
+            logger.error(f"Initialization failed: {e}")
+            app.state.initialized = False
+        finally:
+            app.state.initializing = False
+
+    # Start all initialization in background thread
+    init_thread = threading.Thread(target=complete_initialization, daemon=True)
+    init_thread.start()
+
+    # Yield immediately so app can start accepting requests
     yield
+
+    # Cleanup on shutdown
     logger.info("🔄 Shutting down scheduler...")
     if scheduler.running:
         scheduler.shutdown()
@@ -286,7 +324,7 @@ def update_bot_config(**kwargs):
     from src.models import BotConfig
 
     logger.info(f"update_bot_config called with kwargs: {kwargs}")
-    
+
     VALID_BOTTLE_DURATIONS = [60, 180, 360, 540, 720]
     if "bottles_duration_minutes" in kwargs:
         duration = kwargs["bottles_duration_minutes"]
@@ -375,6 +413,7 @@ def _bot_collect_bottles_task():
                     )
                     with get_session() as s:
                         from src.models import BotConfig
+
                         config = s.query(BotConfig).first()
                         if not (config and config.rotation_enabled):
                             _schedule_next_bottles_task()
@@ -389,8 +428,11 @@ def _bot_collect_bottles_task():
             get_bot().log(f"Bottle collection started: {result.get('message', '')}")
             try:
                 from src.events import emit_activity_started, emit_status_changed
+
                 current_bot = get_bot()
-                bottles_seconds = getattr(current_bot, "bottles_seconds_remaining", duration_minutes * 60)
+                bottles_seconds = getattr(
+                    current_bot, "bottles_seconds_remaining", duration_minutes * 60
+                )
                 current_bot.bottles_running = True
                 current_bot.bottles_seconds_remaining = bottles_seconds
                 emit_activity_started("bottles", bottles_seconds)
@@ -401,6 +443,7 @@ def _bot_collect_bottles_task():
             get_bot().log(f"Bottle collection failed: {result.get('message', '')}")
         with get_session() as s:
             from src.models import BotConfig
+
             config = s.query(BotConfig).first()
             if not (config and config.rotation_enabled):
                 _schedule_next_bottles_task()
@@ -412,7 +455,6 @@ def _bot_collect_bottles_task():
 
 
 def _schedule_next_bottles_task():
-    import random
     from src.models import BotConfig
 
     with get_session() as s:
@@ -529,6 +571,7 @@ def _bot_training_task():
             get_bot().log(f"Training started: {result.get('message', '')}")
             try:
                 from src.events import emit_activity_started, emit_status_changed
+
                 current_bot = get_bot()
                 skill_seconds = getattr(current_bot, "skill_seconds_remaining", 300)
                 current_bot.skill_running = True
@@ -616,7 +659,7 @@ def _bot_activity_monitor_task():
 
 
 def manage_scheduler_jobs(config):
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     current_bot = get_bot()
     now = datetime.now().astimezone()
@@ -628,11 +671,13 @@ def manage_scheduler_jobs(config):
                 scheduler.add_job(
                     _bot_activity_monitor_task,
                     trigger="interval",
-                    seconds=120,
+                    seconds=1800,
                     id=ACTIVITY_MONITOR_JOB_ID,
                     replace_existing=True,
                 )
-                current_bot.log("[MONITOR] Activity monitor job scheduled (every 120s)")
+                current_bot.log(
+                    "[MONITOR] Activity monitor job scheduled"
+                )
         return
     skill_already_running = (
         current_bot.skill_running
@@ -650,11 +695,11 @@ def manage_scheduler_jobs(config):
             scheduler.add_job(
                 _bot_activity_monitor_task,
                 trigger="interval",
-                seconds=120,
+                seconds=240,
                 id=ACTIVITY_MONITOR_JOB_ID,
                 replace_existing=True,
             )
-            current_bot.log("[MONITOR] Activity monitor job scheduled (every 120s)")
+            current_bot.log("[MONITOR] Activity monitor job scheduled")
     if config["bottles_enabled"] and config["is_running"]:
         if config["rotation_enabled"]:
             if config["rotation_start_with"] == "bottles":
@@ -675,7 +720,9 @@ def manage_scheduler_jobs(config):
                     )
                     current_bot.log("[SCHEDULER] Bottle-Job gestartet")
             else:
-                current_bot.log("[SKIP] Rotation enabled, starting with fight - skipping bottles")
+                current_bot.log(
+                    "[SKIP] Rotation enabled, starting with fight - skipping bottles"
+                )
         else:
             bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
             if bottles_already_running:
@@ -730,7 +777,9 @@ def manage_scheduler_jobs(config):
                     )
                     current_bot.log("[SCHEDULER] Kampf-Job gestartet")
             else:
-                current_bot.log("[SKIP] Rotation enabled, starting with bottles - skipping fight")
+                current_bot.log(
+                    "[SKIP] Rotation enabled, starting with bottles - skipping fight"
+                )
         else:
             fight_job = scheduler.get_job(FIGHT_JOB_ID)
             if current_bot.fight_running:
@@ -757,9 +806,7 @@ def manage_scheduler_jobs(config):
 
 
 def _schedule_next_training_task(skip_training: bool = False):
-    import random
     from src.models import BotConfig
-    from src.constants import PAUSE_VARIATION_MAX, PAUSE_VARIATION_MIN
 
     with get_session() as s:
         config = s.query(BotConfig).first()
@@ -880,8 +927,15 @@ def _get_city_info(session):
 
 
 @app.get("/api/health")
-def health() -> Dict[str, Any]:
-    return {"ok": True, "version": "0.2.0"}
+def health(request: Request) -> Dict[str, Any]:
+    # During initialization, return a special status to indicate backend is starting
+    if hasattr(request.app.state, 'initializing') and request.app.state.initializing:
+        return {"ok": True, "status": "initializing", "version": "0.2.0"}
+    elif hasattr(request.app.state, 'initialized') and request.app.state.initialized:
+        return {"ok": True, "status": "ready", "version": "0.2.0"}
+    else:
+        # Default case - assume ready if we can't determine state
+        return {"ok": True, "status": "ready", "version": "0.2.0"}
 
 
 @app.get("/api/metrics/performance")
@@ -1027,10 +1081,15 @@ def dashboard_status() -> Dict[str, Any]:
 
 
 @app.get("/api/status")
-@cached(ttl=10)
 def status() -> Dict[str, Any]:
     try:
         current_bot = get_bot()
+        if current_bot is None:
+            return {
+                "logged_in": False,
+                "penner": None,
+                "activities": {"error": "Bot initializing"},
+            }
         if getattr(current_bot, "logged_in", False):
             try:
                 current_bot.refresh_status(force=False)
@@ -1107,11 +1166,10 @@ def logout() -> Dict[str, Any]:
         current_bot = get_bot()
         current_bot.logged_in = False
         current_bot.cookies = {}
-    except Exception as e:
-        logger.warning(f"Database initialization failed: {e}")
         return {"success": True}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(f"Logout error: {e}")
+        return {"success": True}
 
 
 @app.post("/api/login/auto")
@@ -1168,6 +1226,7 @@ def refresh_status() -> Dict[str, Any]:
         success = current_bot.refresh_status(force=True)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to refresh status")
+        invalidate_cache_pattern("dashboard")
         data = current_bot.get_penner_data()
         return {
             "success": True,
@@ -1216,105 +1275,130 @@ def activities_overview() -> Dict[str, Any]:
 @app.get("/api/activities/upcoming")
 def activities_upcoming() -> Dict[str, Any]:
     from datetime import timedelta
+
     try:
         current_bot = get_bot()
         if not current_bot.logged_in:
             raise HTTPException(status_code=401, detail="Not logged in")
-        
+
         config = get_bot_config()
         activities = []
-        
+
         bottles_running = getattr(current_bot, "bottles_running", False)
         skill_running = getattr(current_bot, "skill_running", False)
         fight_running = getattr(current_bot, "fight_running", False)
-        
+
         bottles_remaining = getattr(current_bot, "bottles_seconds_remaining", None)
         skill_remaining = getattr(current_bot, "skill_seconds_remaining", None)
         fight_remaining = getattr(current_bot, "fight_seconds_remaining", None)
-        
+
         now = datetime.now()
-        
+
         if bottles_running and bottles_remaining and bottles_remaining > 0:
             end_time = now + timedelta(seconds=bottles_remaining)
-            activities.append({
-                "type": "bottles",
-                "name": "Pfandflaschen sammeln",
-                "status": "running",
-                "remaining_seconds": bottles_remaining,
-                "end_time": end_time.isoformat(),
-            })
-            if config.get("bottles_enabled") and config.get("bottles_pause_minutes", 1) > 0:
+            activities.append(
+                {
+                    "type": "bottles",
+                    "name": "Pfandflaschen sammeln",
+                    "status": "running",
+                    "remaining_seconds": bottles_remaining,
+                    "end_time": end_time.isoformat(),
+                }
+            )
+            if (
+                config.get("bottles_enabled")
+                and config.get("bottles_pause_minutes", 1) > 0
+            ):
                 pause = config["bottles_pause_minutes"]
-                activities.append({
-                    "type": "bottles_pause",
-                    "name": "Pause (Pfandflaschen)",
-                    "status": "scheduled",
-                    "after": "bottles",
-                    "delay_minutes": pause,
-                    "start_time": end_time.isoformat(),
-                })
+                activities.append(
+                    {
+                        "type": "bottles_pause",
+                        "name": "Pause (Pfandflaschen)",
+                        "status": "scheduled",
+                        "after": "bottles",
+                        "delay_minutes": pause,
+                        "start_time": end_time.isoformat(),
+                    }
+                )
         elif config.get("bottles_enabled"):
-            activities.append({
-                "type": "bottles",
-                "name": "Pfandflaschen sammeln",
-                "status": "ready",
-                "delay_minutes": config.get("bottles_pause_minutes", 1),
-            })
-        
+            activities.append(
+                {
+                    "type": "bottles",
+                    "name": "Pfandflaschen sammeln",
+                    "status": "ready",
+                    "delay_minutes": config.get("bottles_pause_minutes", 1),
+                }
+            )
+
         if skill_running and skill_remaining and skill_remaining > 0:
             end_time = now + timedelta(seconds=skill_remaining)
-            activities.append({
-                "type": "skill",
-                "name": "Weiterbildung",
-                "status": "running",
-                "remaining_seconds": skill_remaining,
-                "end_time": end_time.isoformat(),
-            })
-            if config.get("training_enabled") and config.get("training_pause_minutes", 1) > 0:
+            activities.append(
+                {
+                    "type": "skill",
+                    "name": "Weiterbildung",
+                    "status": "running",
+                    "remaining_seconds": skill_remaining,
+                    "end_time": end_time.isoformat(),
+                }
+            )
+            if (
+                config.get("training_enabled")
+                and config.get("training_pause_minutes", 1) > 0
+            ):
                 pause = config["training_pause_minutes"]
-                activities.append({
-                    "type": "skill_pause",
-                    "name": "Pause (Weiterbildung)",
-                    "status": "scheduled",
-                    "after": "skill",
-                    "delay_minutes": pause,
-                    "start_time": end_time.isoformat(),
-                })
+                activities.append(
+                    {
+                        "type": "skill_pause",
+                        "name": "Pause (Weiterbildung)",
+                        "status": "scheduled",
+                        "after": "skill",
+                        "delay_minutes": pause,
+                        "start_time": end_time.isoformat(),
+                    }
+                )
         elif config.get("training_enabled"):
-            activities.append({
-                "type": "skill",
-                "name": "Weiterbildung",
-                "status": "ready",
-                "delay_minutes": config.get("training_pause_minutes", 1),
-            })
-        
+            activities.append(
+                {
+                    "type": "skill",
+                    "name": "Weiterbildung",
+                    "status": "ready",
+                    "delay_minutes": config.get("training_pause_minutes", 1),
+                }
+            )
+
         if fight_running and fight_remaining and fight_remaining > 0:
             end_time = now + timedelta(seconds=fight_remaining)
-            activities.append({
-                "type": "fight",
-                "name": "Kampf",
-                "status": "running",
-                "remaining_seconds": fight_remaining,
-                "end_time": end_time.isoformat(),
-            })
+            activities.append(
+                {
+                    "type": "fight",
+                    "name": "Kampf",
+                    "status": "running",
+                    "remaining_seconds": fight_remaining,
+                    "end_time": end_time.isoformat(),
+                }
+            )
             if config.get("fight_enabled") and config.get("fight_pause_minutes", 1) > 0:
                 pause = config["fight_pause_minutes"]
-                activities.append({
-                    "type": "fight_pause",
-                    "name": "Pause (Kampf)",
-                    "status": "scheduled",
-                    "after": "fight",
-                    "delay_minutes": pause,
-                    "start_time": end_time.isoformat(),
-                })
+                activities.append(
+                    {
+                        "type": "fight_pause",
+                        "name": "Pause (Kampf)",
+                        "status": "scheduled",
+                        "after": "fight",
+                        "delay_minutes": pause,
+                        "start_time": end_time.isoformat(),
+                    }
+                )
         elif config.get("fight_enabled"):
-            activities.append({
-                "type": "fight",
-                "name": "Kampf",
-                "status": "ready",
-                "delay_minutes": config.get("fight_pause_minutes", 1),
-            })
-        
+            activities.append(
+                {
+                    "type": "fight",
+                    "name": "Kampf",
+                    "status": "ready",
+                    "delay_minutes": config.get("fight_pause_minutes", 1),
+                }
+            )
+
         return {"upcoming": activities}
     except HTTPException:
         raise
@@ -1491,7 +1575,7 @@ def bot_state() -> Dict[str, Any]:
 @app.post("/api/bot/start")
 def bot_start() -> Dict[str, Any]:
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         from src.events import emit_bot_state_changed
 
         current_bot = get_bot()
@@ -1783,7 +1867,7 @@ def sell_bottles(payload: dict) -> Dict[str, Any]:
             invalidate_cache_pattern("status")
             try:
                 from src.events import emit_money_changed
-                from src.events import emit_activity_started, emit_status_changed
+                from src.events import emit_status_changed
 
                 penner_data = get_bot().get_penner_data()
                 if penner_data and "money" in penner_data:
@@ -1852,7 +1936,9 @@ def _bot_fight_task():
             activities = get_bot().get_activities_data(use_cache=False)
             fight_running = activities.get("fight", {}).get("running", False)
             if fight_running:
-                seconds_remaining = activities.get("fight", {}).get("seconds_remaining", 0)
+                seconds_remaining = activities.get("fight", {}).get(
+                    "seconds_remaining", 0
+                )
                 if seconds_remaining > 0:
                     minutes_remaining = seconds_remaining // 60
                     get_bot().log(
@@ -1860,6 +1946,7 @@ def _bot_fight_task():
                     )
                     with get_session() as s:
                         from src.models import BotConfig
+
                         config = s.query(BotConfig).first()
                         if not (config and config.rotation_enabled):
                             _schedule_next_fight_task()
@@ -1867,11 +1954,13 @@ def _bot_fight_task():
         except Exception as e:
             get_bot().log(f"Could not check fight status: {e}, proceeding with start")
         from src.tasks import start_fight
+
         result = start_fight(get_bot())
         if result.get("success"):
             get_bot().log(f"✓ {result.get('message')}")
             try:
                 from src.events import emit_activity_started, emit_status_changed
+
                 current_bot = get_bot()
                 fight_seconds = getattr(current_bot, "fight_seconds_remaining", 600)
                 current_bot.fight_running = True
@@ -1884,12 +1973,14 @@ def _bot_fight_task():
             get_bot().log(f"✗ Fight failed: {result.get('message')}")
         with get_session() as s:
             from src.models import BotConfig
+
             config = s.query(BotConfig).first()
             if not (config and config.rotation_enabled):
                 _schedule_next_fight_task()
     except Exception as e:
         get_bot().log(f"Error in fight task: {e}")
         import traceback
+
         traceback.print_exc()
         _schedule_next_fight_task()
 
@@ -1920,7 +2011,7 @@ def _schedule_next_fight_task():
     except Exception as e:
         get_bot().log(f"Error getting fight timer: {e}")
         actual_seconds_remaining = 0
-    import random
+
     pause_variation = random.uniform(0.95, 1.05)
     pause_seconds = int(pause_minutes * 60 * pause_variation)
     total_wait = actual_seconds_remaining + pause_seconds
@@ -1954,13 +2045,13 @@ def start_fight() -> Dict[str, Any]:
         if result.get("success"):
             invalidate_cache_pattern("dashboard")
             invalidate_cache_pattern("status")
-            
+
             # Force a status refresh to update the UI
             try:
                 current_bot.refresh_status(force=True)
             except Exception as e:
                 logger.warning(f"Failed to refresh status after fight start: {e}")
-            
+
             try:
                 from src.events import emit_activity_started, emit_status_changed
 
@@ -2012,6 +2103,7 @@ def cancel_fight() -> Dict[str, Any]:
             invalidate_cache_pattern("status")
             try:
                 from src.events import emit_status_changed
+
                 current_bot = get_bot()
                 emit_status_changed(get_activity_status(current_bot))
             except Exception as e:
@@ -2361,7 +2453,6 @@ def sober_up() -> Dict[str, Any]:
             try:
                 from src.events import (
                     emit_promille_changed,
-                    emit_money_changed,
                     emit_status_changed,
                 )
 
@@ -2445,4 +2536,4 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     args = parser.parse_args()
-    uvicorn.run("server:app", host=args.host, port=args.port, reload=False)
+    uvicorn.run("server:app", host=args.host, port=args.port, reload=False, workers=1)

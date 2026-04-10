@@ -617,7 +617,7 @@ def parse_skills(html: str) -> dict:
                 else:
                     try:
                         skill_data["max_level"] = int(max_level_str)
-                    except:
+                    except Exception:
                         skill_data["max_level"] = None
         cost_match = re.search("Nächste Stufe: €([\\d.,]+)", table.text)
         if cost_match:
@@ -650,7 +650,7 @@ def parse_drinks(html: str) -> dict:
             drink["promille"] = promille_input.get("value", "")
             try:
                 drink["effect"] = float(drink["promille"]) / 100.0
-            except:
+            except (ValueError, TypeError):
                 drink["effect"] = 0.0
         lager_input = form.find("input", {"id": f"lager_{drink['name']}"})
         if lager_input:
@@ -683,7 +683,7 @@ def parse_food(html: str) -> dict:
             food["promille"] = promille_input.get("value", "")
             try:
                 food["effect"] = float(food["promille"]) / 100.0
-            except:
+            except (ValueError, TypeError):
                 food["effect"] = 0.0
         lager_input = form.find("input", {"id": f"lager_{food['name']}"})
         if lager_input:

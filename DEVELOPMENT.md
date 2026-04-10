@@ -202,11 +202,7 @@ npm run build
 
 # Executable will be in dist/PennerBot.exe
 # See BUILD.md for detailed build options
-```
 
-# Executable will be in web/src-tauri/target/release/
-
-> Dev note: This repository is at version **0.0.4** — behavioral defaults (bottles/autosell/autodrink/training) were consolidated into `src/constants.py` and `BotConfig` now uses those constants for first-run database values.
 ```
 
 ## Contributing

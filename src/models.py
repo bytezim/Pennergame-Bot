@@ -12,7 +12,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from .db import Base
 from .constants import (
-    VALID_TRAINING_SKILLS,
     DEFAULT_TRAINING_PAUSE,
     DEFAULT_TRAINING_MAX_LEVEL,
     BOTTLE_ENABLED_DEFAULT,

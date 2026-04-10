@@ -1,6 +1,5 @@
 import sys
 import os
-import json
 import logging
 import threading
 import subprocess
@@ -9,39 +8,15 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-import io
+from src.db import close_db_connection
 
-if hasattr(sys, "_MEIPASS"):
-    if sys.stdout is None:
-        sys.stdout = io.StringIO()
-    if sys.stderr is None:
-        sys.stderr = io.StringIO()
-    try:
-        if hasattr(sys.stdout, "buffer") and sys.stdout.buffer is not None:
-            sys.stdout = io.TextIOWrapper(
-                sys.stdout.buffer, encoding="utf-8", errors="replace"
-            )
-        if hasattr(sys.stderr, "buffer") and sys.stderr.buffer is not None:
-            sys.stderr = io.TextIOWrapper(
-                sys.stderr.buffer, encoding="utf-8", errors="replace"
-            )
-    except (AttributeError, OSError):
-        pass
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("gui_launcher")
+
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import tkinter.scrolledtext as scrolledtext
-import threading
-import uvicorn
-import aiohttp
 
 sys.path.insert(0, str(Path(__file__).parent))
-from src.db import close_db_connection
 
 DEFAULT_BACKEND_PORT = 8000
 DEFAULT_FRONTEND_PORT = 1420
@@ -49,7 +24,6 @@ LOG_MAX_LINES = 10000
 
 
 class ProcessManager:
-
     def __init__(self):
         self.backend_process = None
         self.frontend_process = None
@@ -272,7 +246,6 @@ class ProcessManager:
 
 
 class LogCapture:
-
     def __init__(self, max_lines: int = LOG_MAX_LINES):
         self.log_lines: List[Dict[str, Any]] = []
         self.max_lines = max_lines
@@ -307,7 +280,6 @@ class LogCapture:
 
 
 class SimpleGUI:
-
     def __init__(self):
         self.process_manager = ProcessManager()
         self.log_capture = LogCapture()
@@ -445,7 +417,7 @@ class SimpleGUI:
         footer_frame.pack_propagate(False)
         copyright_label = tk.Label(
             footer_frame,
-            text="v0.0.4",
+            text="v0.1.0",
             fg=self.colors["text_secondary"],
             bg=self.colors["bg_secondary"],
             font=("Segoe UI", 7),
@@ -567,8 +539,10 @@ class SimpleGUI:
                 time.sleep(3)
                 threading.Thread(target=open_browser, daemon=True).start()
             except Exception as e:
-                self.root.after(0, lambda: self.status_var.set(f"Error: {e}"))
                 error_msg = f"Error in auto-start services: {e}"
+                self.root.after(
+                    0, lambda err=error_msg: self.status_var.set(f"Error: {err}")
+                )
                 self.log_capture.add_log_entry("ERROR", error_msg)
 
         threading.Thread(target=start_services, daemon=True).start()

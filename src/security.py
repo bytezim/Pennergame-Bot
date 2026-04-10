@@ -42,7 +42,6 @@ class PasswordHasher:
 
 
 class CredentialEncryption:
-
     @staticmethod
     def _get_encryption_key() -> bytes:
         import platform

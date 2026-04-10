@@ -12,7 +12,10 @@ def search_bottles(bot, time_minutes: int = 10):
     try:
         if bot.fight_running:
             bot.log("[INFO] Kampf laeuft - Pfandflaschen sammeln uebersprungen")
-            return {"success": False, "message": "Kampf läuft - Pfandflaschen sammeln nicht möglich"}
+            return {
+                "success": False,
+                "message": "Kampf läuft - Pfandflaschen sammeln nicht möglich",
+            }
         bot.log(f"[INFO] Starte Pfandflaschen sammeln ({time_minutes} Minuten)...")
         if time_minutes not in VALID_BOTTLE_DURATIONS:
             bot.log(
@@ -528,7 +531,9 @@ def _get_last_page_link_from_pagination(bot, soup):
             max_page = max(page_numbers)
             # Add trailing slash to match exact URL from HTML
             last_page_link = f"/highscore/attackable/{max_page}/"
-            bot.log(f"Paginierung gefunden: {len(page_numbers)} Seiten, letzte Seite: {max_page}")
+            bot.log(
+                f"Paginierung gefunden: {len(page_numbers)} Seiten, letzte Seite: {max_page}"
+            )
         else:
             bot.log("Paginierung gefunden, aber keine gültigen Seitenzahlen extrahiert")
     else:
@@ -552,7 +557,10 @@ def get_last_attackable_player(bot):
 
         if response.status_code != 200:
             bot.log(f"Seite konnte nicht geladen werden: HTTP {response.status_code}")
-            return {"success": False, "error": f"Seite konnte nicht geladen werden: HTTP {response.status_code}"}
+            return {
+                "success": False,
+                "error": f"Seite konnte nicht geladen werden: HTTP {response.status_code}",
+            }
 
         # Debug: log response info
         bot.log(f"Content-Length: {len(response.text)}")
@@ -568,11 +576,14 @@ def get_last_attackable_player(bot):
 
         if response.status_code != 200:
             bot.log(f"Seite konnte nicht geladen werden: HTTP {response.status_code}")
-            return {"success": False, "error": f"Seite konnte nicht geladen werden: HTTP {response.status_code}"}
+            return {
+                "success": False,
+                "error": f"Seite konnte nicht geladen werden: HTTP {response.status_code}",
+            }
 
         # Debug: log response info
         bot.log(f"Content-Length: {len(response.text)}")
-        
+
         # Check if response contains any HTML
         if not response.text or "<table" not in response.text.lower():
             bot.log("Response enthält keine Tabellen")
@@ -596,7 +607,9 @@ def get_last_attackable_player(bot):
         if not table:
             tables = soup.find_all("table")
             for t in tables:
-                if t.find("tbody") and t.find("a", href=lambda x: x and "/fight/?to=" in x):
+                if t.find("tbody") and t.find(
+                    "a", href=lambda x: x and "/fight/?to=" in x
+                ):
                     table = t
                     break
 
@@ -610,7 +623,9 @@ def get_last_attackable_player(bot):
                     style = t.get("style", "")
                     class_attr = t.get("class", "")
                     rows = len(t.find_all("tr"))
-                    bot.log(f"  Tabelle {i}: style={style[:50]}, class={class_attr}, rows={rows}")
+                    bot.log(
+                        f"  Tabelle {i}: style={style[:50]}, class={class_attr}, rows={rows}"
+                    )
             return {"success": False, "error": "Keine Highscore-Tabelle gefunden"}
 
         tbody = table.find("tbody")
@@ -630,9 +645,13 @@ def get_last_attackable_player(bot):
         for row in rows:
             cols = row.find_all("td")
             if len(cols) >= 6:
-                attack_link = cols[5].find("a", {"href": lambda x: x and "/fight/?to=" in x})
+                attack_link = cols[5].find(
+                    "a", {"href": lambda x: x and "/fight/?to=" in x}
+                )
                 if attack_link:
-                    player_link = cols[1].find("a", {"class": "username"}) or cols[1].find("a")
+                    player_link = cols[1].find("a", {"class": "username"}) or cols[
+                        1
+                    ].find("a")
                     if player_link:
                         player_name = player_link.get_text(strip=True)
                         if player_name:
@@ -644,11 +663,14 @@ def get_last_attackable_player(bot):
 
         # Take the last (weakest) player
         player_name = attackable_players[-1]
-        bot.log(f"Letzter angreifbarer Spieler gefunden: {player_name} (von {len(attackable_players)} Spielern)")
+        bot.log(
+            f"Letzter angreifbarer Spieler gefunden: {player_name} (von {len(attackable_players)} Spielern)"
+        )
         return {"success": True, "player_name": player_name}
     except Exception as e:
         bot.log(f"Fehler beim Ermitteln des letzten angreifbaren Spielers: {e}")
         import traceback
+
         bot.log(f"Traceback: {traceback.format_exc()}")
         return {"success": False, "error": str(e)}
 
@@ -659,7 +681,10 @@ def start_fight(bot):
     try:
         if bot.bottles_running:
             bot.log("Pfandflaschen sammeln läuft - Kampf übersprungen")
-            return {"success": False, "message": "Pfandflaschen sammeln läuft - Kampf nicht möglich"}
+            return {
+                "success": False,
+                "message": "Pfandflaschen sammeln läuft - Kampf nicht möglich",
+            }
         bot.log("Starte Kampf...")
         # Check if fight is already running
         if bot.fight_running:
@@ -674,12 +699,18 @@ def start_fight(bot):
             empty_result = empty_bottle_cart(bot)
             if not empty_result.get("success"):
                 bot.log("Einkaufswagen konnte nicht geleert werden")
-                return {"success": False, "message": "Einkaufswagen konnte nicht geleert werden"}
+                return {
+                    "success": False,
+                    "message": "Einkaufswagen konnte nicht geleert werden",
+                }
 
         # Get last attackable player
         player_result = get_last_attackable_player(bot)
         if not player_result.get("success"):
-            return {"success": False, "message": player_result.get("error", "Unbekannter Fehler")}
+            return {
+                "success": False,
+                "message": player_result.get("error", "Unbekannter Fehler"),
+            }
 
         player_name = player_result["player_name"]
         bot.log(f"Greife {player_name} an...")
@@ -688,13 +719,16 @@ def start_fight(bot):
         response = bot.api_get(bot.client, f"/fight/?to={player_name}")
         if response.status_code != 200:
             bot.log(f"Konnte Kampf-Seite nicht laden: HTTP {response.status_code}")
-            return {"success": False, "message": f"Konnte Kampf-Seite nicht laden: HTTP {response.status_code}"}
+            return {
+                "success": False,
+                "message": f"Konnte Kampf-Seite nicht laden: HTTP {response.status_code}",
+            }
 
         # Start the fight
         fight_response = bot.api_post(
             bot.client,
             "/fight/attack/",
-            data={"f_toid": player_name, "Submit2": "Angriff"}
+            data={"f_toid": player_name, "Submit2": "Angriff"},
         )
 
         if fight_response.status_code == 200:
@@ -707,42 +741,64 @@ def start_fight(bot):
                 "counter(",
                 "pommerngreif",  # opponent name in response
             ]
-            
+
             # Also check for notifyme success message
-            if '<div id="notifyme"' in fight_response.text and "Angriff erfolgreich gestartet" in fight_response.text:
+            if (
+                '<div id="notifyme"' in fight_response.text
+                and "Angriff erfolgreich gestartet" in fight_response.text
+            ):
                 success_indicators.append("notifyme")
-            
-            fight_started = any(indicator in fight_response.text for indicator in success_indicators)
+
+            fight_started = any(
+                indicator in fight_response.text for indicator in success_indicators
+            )
 
             if fight_started:
                 bot.log(f"Kampf gegen {player_name} gestartet")
                 # Set fight running status
                 bot.fight_running = True
                 # Set estimated fight duration (default 10 min, can be modified by weather)
-                from datetime import datetime, timedelta
+                from datetime import datetime
+
                 bot.fight_started_at = datetime.now()
                 bot.fight_seconds_remaining = 600  # 10 minutes default
-                
+
                 try:
                     counters = parse_header_counters(fight_response.text)
                     bot._update_activity_status(counters)
                     bot._status_cache_time = datetime.now()
                 except Exception as e:
                     bot.log(f"Could not parse counters: {e}")
-                return {"success": True, "message": f"Kampf gegen {player_name} gestartet", "opponent": player_name}
+                return {
+                    "success": True,
+                    "message": f"Kampf gegen {player_name} gestartet",
+                    "opponent": player_name,
+                }
             else:
                 # Even if we don't detect success, the fight might have started
                 # Check if response indicates any fight activity
                 if "Angriff" in fight_response.text or "Kampf" in fight_response.text:
-                    bot.log(f"Kampf gegen {player_name} möglicherweise gestartet (nicht sicher erkannt)")
+                    bot.log(
+                        f"Kampf gegen {player_name} möglicherweise gestartet (nicht sicher erkannt)"
+                    )
                     bot.fight_running = True
                     from datetime import datetime
+
                     bot.fight_started_at = datetime.now()
                     bot.fight_seconds_remaining = 600
-                    return {"success": True, "message": f"Kampf gegen {player_name} gestartet (nicht sicher erkannt)", "opponent": player_name}
-                bot.log("Kampf konnte nicht gestartet werden - keine Erfolgsindikatoren gefunden")
+                    return {
+                        "success": True,
+                        "message": f"Kampf gegen {player_name} gestartet (nicht sicher erkannt)",
+                        "opponent": player_name,
+                    }
+                bot.log(
+                    "Kampf konnte nicht gestartet werden - keine Erfolgsindikatoren gefunden"
+                )
                 bot.log(f"Antwort-Vorschau: {fight_response.text[:200]}")
-                return {"success": False, "message": "Kampf konnte nicht gestartet werden"}
+                return {
+                    "success": False,
+                    "message": "Kampf konnte nicht gestartet werden",
+                }
         else:
             bot.log(f"Kampf-Start fehlgeschlagen: HTTP {fight_response.status_code}")
             return {"success": False, "message": f"HTTP {fight_response.status_code}"}
@@ -772,7 +828,9 @@ def cancel_fight(bot):
             return {"success": False, "message": "Kein Kampf läuft"}
 
         # Send cancel request
-        response = bot.api_post(bot.client, "/fight/cancel/", data={"cancel_sub": "Angriff abbrechen"})
+        response = bot.api_post(
+            bot.client, "/fight/cancel/", data={"cancel_sub": "Angriff abbrechen"}
+        )
         if response.status_code == 200:
             try:
                 counters = parse_header_counters(response.text)
@@ -781,7 +839,11 @@ def cancel_fight(bot):
             except Exception as e:
                 bot.log(f"Could not parse counters: {e}")
 
-            if "Kampf abgebrochen" in response.text or "Angriff wurde abgebrochen" in response.text or "fight/cancel" in str(response.url):
+            if (
+                "Kampf abgebrochen" in response.text
+                or "Angriff wurde abgebrochen" in response.text
+                or "fight/cancel" in str(response.url)
+            ):
                 bot.log("Kampf abgebrochen")
                 return {"success": True, "message": "Kampf abgebrochen"}
             else:
@@ -815,7 +877,7 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
         current_promille = drinks_data.get("current_promille", 0.0)
         available_drinks = drinks_data.get("drinks", [])
         bot.log(f"Aktuell: {current_promille:.2f}‰")
-        
+
         if current_promille >= target_promille:
             bot.log(
                 f"Promille bereits ausreichend ({current_promille:.2f}‰ >= {target_promille:.2f}‰)"
@@ -826,7 +888,7 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                 "current_promille": current_promille,
                 "drank": False,
             }
-        
+
         if current_promille >= PROMILLE_WARNING_THRESHOLD:
             bot.log(f"Promille zu hoch ({current_promille:.2f}‰), kein Trinken!")
             return {
@@ -835,7 +897,7 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                 "current_promille": current_promille,
                 "drank": False,
             }
-        
+
         needed_promille = target_promille - current_promille
         if needed_promille <= 0:
             bot.log("Bereits am Ziel")
@@ -845,9 +907,9 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                 "current_promille": current_promille,
                 "drank": False,
             }
-        
+
         bot.log(f"Benötigt: +{needed_promille:.2f}‰")
-        
+
         if not available_drinks:
             bot.log("Keine Getränke im Inventar!")
             return {
@@ -856,7 +918,7 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                 "current_promille": current_promille,
                 "drank": False,
             }
-        
+
         strong_drinks = []
         weak_drinks = []
         for drink in available_drinks:
@@ -865,28 +927,32 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
             if effect <= 0 or count <= 0:
                 continue
             if effect >= 2.0:
-                strong_drinks.append({
-                    "name": drink.get("name", "Unbekannt"),
-                    "item_id": drink.get("item_id", ""),
-                    "promille": drink.get("promille", "0"),
-                    "effect": effect,
-                    "count": count,
-                })
+                strong_drinks.append(
+                    {
+                        "name": drink.get("name", "Unbekannt"),
+                        "item_id": drink.get("item_id", ""),
+                        "promille": drink.get("promille", "0"),
+                        "effect": effect,
+                        "count": count,
+                    }
+                )
             else:
-                weak_drinks.append({
-                    "name": drink.get("name", "Unbekannt"),
-                    "item_id": drink.get("item_id", ""),
-                    "promille": drink.get("promille", "0"),
-                    "effect": effect,
-                    "count": count,
-                })
-        
+                weak_drinks.append(
+                    {
+                        "name": drink.get("name", "Unbekannt"),
+                        "item_id": drink.get("item_id", ""),
+                        "promille": drink.get("promille", "0"),
+                        "effect": effect,
+                        "count": count,
+                    }
+                )
+
         strong_drinks.sort(key=lambda d: d["effect"], reverse=True)
         weak_drinks.sort(key=lambda d: d["effect"], reverse=True)
-        
+
         new_promille = current_promille
         drinks_consumed = []
-        
+
         if strong_drinks and needed_promille >= 1.0:
             for drink in strong_drinks:
                 if new_promille >= target_promille:
@@ -894,11 +960,11 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                 remaining = target_promille - new_promille
                 effect = drink["effect"]
                 available = drink["count"]
-                
+
                 needed = min(available, int(remaining / effect))
                 if needed == 0 and remaining > 0:
                     needed = 1
-                
+
                 if needed > 0:
                     total_effect = effect * needed
                     if new_promille + total_effect > target_promille:
@@ -906,18 +972,24 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                         if needed == 0:
                             continue
                         total_effect = effect * needed
-                    
+
                     if new_promille + total_effect > target_promille:
                         continue
-                    
+
                     bot.log(f"Trinke {needed}x {drink['name']} (je {effect}‰)")
-                    result = bot.drink(drink["name"], drink["item_id"], drink["promille"], needed)
+                    result = bot.drink(
+                        drink["name"], drink["item_id"], drink["promille"], needed
+                    )
                     if result.get("success"):
                         new_promille = result.get("new_promille", new_promille)
-                        drinks_consumed.append(f"{needed}x {drink['name']} (+{total_effect:.2f}‰)")
-                        bot.log(f"{drink['name']} getrunken: Jetzt bei {new_promille:.2f}‰")
+                        drinks_consumed.append(
+                            f"{needed}x {drink['name']} (+{total_effect:.2f}‰)"
+                        )
+                        bot.log(
+                            f"{drink['name']} getrunken: Jetzt bei {new_promille:.2f}‰"
+                        )
                         needed_promille = target_promille - new_promille
-        
+
         if weak_drinks and needed_promille > 0.05:
             for drink in weak_drinks:
                 if new_promille >= target_promille:
@@ -925,30 +997,37 @@ def auto_drink_before_training(bot, target_promille: float = 3.5):
                 remaining = target_promille - new_promille
                 effect = drink["effect"]
                 available = drink["count"]
-                
-                needed = min(available, int(remaining / effect) + (1 if remaining % effect > 0.05 else 0))
-                
+
+                needed = min(
+                    available,
+                    int(remaining / effect) + (1 if remaining % effect > 0.05 else 0),
+                )
+
                 if needed <= 0:
                     continue
-                
+
                 total_effect = effect * needed
                 if new_promille + total_effect > target_promille:
                     needed = int(remaining / effect)
                     if needed == 0:
                         needed = 1
                     total_effect = effect * needed
-                
+
                 if new_promille + total_effect > target_promille:
                     continue
-                
+
                 bot.log(f"Trinke {needed}x {drink['name']} (je {effect}‰)")
-                result = bot.drink(drink["name"], drink["item_id"], drink["promille"], needed)
+                result = bot.drink(
+                    drink["name"], drink["item_id"], drink["promille"], needed
+                )
                 if result.get("success"):
                     new_promille = result.get("new_promille", new_promille)
-                    drinks_consumed.append(f"{needed}x {drink['name']} (+{total_effect:.2f}‰)")
+                    drinks_consumed.append(
+                        f"{needed}x {drink['name']} (+{total_effect:.2f}‰)"
+                    )
                     bot.log(f"{drink['name']} getrunken: Jetzt bei {new_promille:.2f}‰")
                     needed_promille = target_promille - new_promille
-        
+
         if drinks_consumed:
             drinks_str = " + ".join(drinks_consumed)
             final_promille = min(new_promille, target_promille)

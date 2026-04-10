@@ -12,7 +12,7 @@ def signal_handler(sig, frame):
         try:
             p.terminate()
             p.wait(timeout=5)
-        except:
+        except Exception:
             p.kill()
     sys.exit(0)
 

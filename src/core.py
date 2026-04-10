@@ -3,15 +3,16 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 import httpx
 from .constants import (
-    BASE_URL,
     CITIES,
     DEFAULT_CITY,
     CACHE_TTL_ACTIVITIES,
     CACHE_TTL_LOGIN,
-    CACHE_TTL_STATUS,
+    CACHE_TTL_STATUS_IDLE,
+    CACHE_TTL_STATUS_ACTIVE,
+    CACHE_TTL_STATUS_SHORT,
+    RATE_LIMIT_DELAY,
     DEFAULT_USER_AGENT,
 )
-from typing import Optional
 from .db import get_session
 from .logging_config import get_logger
 from .models import BotActivity, Cookie, Log, Penner, Plunder, Settings
@@ -21,7 +22,6 @@ logger = get_logger(__name__)
 
 
 class PennerBot:
-
     def _load_user_agent(self) -> Optional[str]:
         try:
             with get_session() as s:
@@ -41,12 +41,11 @@ class PennerBot:
         headers = {"User-Agent": user_agent or DEFAULT_USER_AGENT}
         self.client = httpx.Client(follow_redirects=True, headers=headers, timeout=30.0)
         self._load_cookies()
-        self.request: Optional[httpx.Response] = None
         self._activities_cache: Optional[Dict[str, Any]] = None
         self._activities_cache_time: Optional[datetime] = None
         self._activities_cache_ttl = CACHE_TTL_ACTIVITIES
         self._status_cache_time: Optional[datetime] = None
-        self._status_cache_ttl = CACHE_TTL_STATUS
+        self._status_cache_ttl = CACHE_TTL_STATUS_IDLE
         self._city_cache: Optional[str] = None
         self._city_cache_time: Optional[datetime] = None
         self._city_cache_ttl = 300
@@ -59,6 +58,14 @@ class PennerBot:
         self._last_login_check: Optional[datetime] = None
         self._login_status_cache = False
         self._login_cache_ttl = CACHE_TTL_LOGIN
+        self._last_autosell_warning: Optional[datetime] = None
+        self._autosell_warning_cooldown = 3600  # 1 Stunde
+        self._overview_cache: Optional[str] = None
+        self._overview_cache_time: Optional[datetime] = None
+        self._last_request_time: Optional[datetime] = None
+        self._rate_limit_min_delay = RATE_LIMIT_DELAY
+        self._last_bottle_price: int = 0
+        self._last_response: Optional[httpx.Response] = None
 
     def _load_city(self) -> str:
         now = datetime.now()
@@ -79,6 +86,19 @@ class PennerBot:
         city = self._load_city()
         return CITIES[city]
 
+    def _rate_limit_wait(self):
+        now = datetime.now()
+        if self._last_request_time is not None:
+            elapsed = (now - self._last_request_time).total_seconds()
+            if elapsed < self._rate_limit_min_delay:
+                wait_time = self._rate_limit_min_delay - elapsed
+                import time
+                import random
+
+                jitter = random.uniform(0, 0.5)
+                time.sleep(wait_time + jitter)
+        self._last_request_time = datetime.now()
+
     def api_get(
         self,
         client: httpx.Client,
@@ -86,11 +106,12 @@ class PennerBot:
         params: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> httpx.Response:
+        self._rate_limit_wait()
         url = self.get_current_base_url() + endpoint
         logger.debug(f"GET {url}")
         response = client.get(url, params=params, **kwargs)
         response.raise_for_status()
-        self.request = response
+        self._last_response = response
         return response
 
     def api_post(
@@ -100,12 +121,35 @@ class PennerBot:
         data: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> httpx.Response:
+        self._rate_limit_wait()
         url = self.get_current_base_url() + endpoint
         logger.debug(f"POST {url}")
         response = client.post(url, data=data, **kwargs)
         response.raise_for_status()
-        self.request = response
+        self._last_response = response
         return response
+
+    def get_overview(self, force: bool = False) -> Optional[str]:
+        now = datetime.now()
+        if not force and self._overview_cache and self._overview_cache_time:
+            if self.skill_running:
+                ttl = CACHE_TTL_STATUS_ACTIVE
+            elif self.fight_running or self.bottles_running:
+                ttl = CACHE_TTL_STATUS_SHORT
+            else:
+                # Leerlauf -> 1x pro 5 Minuten
+                ttl = CACHE_TTL_STATUS_IDLE
+
+            age = (now - self._overview_cache_time).total_seconds()
+            if age < ttl:
+                return self._overview_cache
+        try:
+            r = self.api_get(self.client, "/overview/")
+            self._overview_cache = r.text
+            self._overview_cache_time = now
+            return r.text
+        except Exception:
+            return None
 
     def is_logged_in(self, skip_log: bool = False):
         now = datetime.now()
@@ -114,27 +158,29 @@ class PennerBot:
             if elapsed < self._login_cache_ttl:
                 return self._login_status_cache
         try:
-            r = self.api_get(self.client, "/overview/")
-            if "Profil ansehen" in r.text:
+            html = self.get_overview()
+            if html is None:
+                raise Exception("Failed to load overview")
+            if "Profil ansehen" in html:
                 if not skip_log and (not self._login_status_cache):
                     self.log("[OK] Cookie successful")
                 self._last_login_check = now
                 self._login_status_cache = True
                 try:
-                    self.set_penner_data(r.text)
+                    self.set_penner_data(html)
                 except Exception as e:
                     self.log(f"[FAIL] Failed to parse penner data: {e}")
                 try:
-                    counters = parse_header_counters(r.text)
+                    counters = parse_header_counters(html)
                     self._update_activity_status(counters)
                 except Exception as e:
                     self.log(f"[WARN] Failed to parse header counters: {e}")
                 try:
-                    self._save_bottle_price(r.text)
+                    self._save_bottle_price(html)
                 except Exception as e:
                     self.log(f"[WARN] Failed to save bottle price: {e}")
                 try:
-                    self._save_money(r.text)
+                    self._save_money(html)
                 except Exception as e:
                     self.log(f"[WARN] Failed to save money: {e}")
                 return True
@@ -292,24 +338,26 @@ class PennerBot:
             if age < self._status_cache_ttl:
                 return True
         try:
-            r = self.api_get(self.client, "/overview/")
-            counters = parse_header_counters(r.text)
+            html = self.get_overview(force=force)
+            if html is None:
+                raise Exception("Failed to load overview")
+            counters = parse_header_counters(html)
             self._update_activity_status(counters)
             self._status_cache_time = datetime.now()
             try:
-                penner_data = parse_overview(r.text)
+                penner_data = parse_overview(html)
                 if penner_data.get("user_id"):
-                    self.set_penner_data(r.text)
+                    self.set_penner_data(html)
                 else:
                     self.log("[WARN] No penner data - possibly not logged in")
             except Exception as e:
                 self.log(f"[WARN] Failed to parse penner data: {e}")
             try:
-                self._save_bottle_price(r.text)
+                self._save_bottle_price(html)
             except Exception as e:
                 self.log(f"[WARN] Failed to save bottle price: {e}")
             try:
-                self._save_money(r.text)
+                self._save_money(html)
             except Exception as e:
                 self.log(f"[WARN] Failed to save money: {e}")
             return True
@@ -320,23 +368,49 @@ class PennerBot:
     def _trigger_auto_sell_check(self, current_price_cents: int):
         from .models import BotConfig
 
+        now = datetime.now()
+
         with get_session() as s:
             config = s.query(BotConfig).first()
             if not config:
-                self.log("[WARN] Auto-Sell: Keine Bot-Config gefunden")
+                if (
+                    self._last_autosell_warning is None
+                    or (now - self._last_autosell_warning).total_seconds()
+                    > self._autosell_warning_cooldown
+                ):
+                    self.log("[WARN] Auto-Sell: Keine Bot-Config gefunden")
+                    self._last_autosell_warning = now
                 return
             if not config.is_running:
-                self.log("[WARN] Auto-Sell: Bot laeuft nicht (is_running=False)")
+                if (
+                    self._last_autosell_warning is None
+                    or (now - self._last_autosell_warning).total_seconds()
+                    > self._autosell_warning_cooldown
+                ):
+                    self.log("[WARN] Auto-Sell: Bot laeuft nicht (is_running=False)")
+                    self._last_autosell_warning = now
                 return
             if not config.bottles_enabled:
-                self.log("[WARN] Auto-Sell: Pfandflaschen sammeln ist deaktiviert")
+                if (
+                    self._last_autosell_warning is None
+                    or (now - self._last_autosell_warning).total_seconds()
+                    > self._autosell_warning_cooldown
+                ):
+                    self.log("[WARN] Auto-Sell: Pfandflaschen sammeln ist deaktiviert")
+                    self._last_autosell_warning = now
                 return
             if not config.bottles_autosell_enabled:
-                self.log("[WARN] Auto-Sell: Feature ist deaktiviert")
+                if (
+                    self._last_autosell_warning is None
+                    or (now - self._last_autosell_warning).total_seconds()
+                    > self._autosell_warning_cooldown
+                ):
+                    self.log("[WARN] Auto-Sell: Feature ist deaktiviert")
+                    self._last_autosell_warning = now
                 return
             min_price = config.bottles_min_price
-            self.log(
-                f"[SEARCH] Auto-Sell Check: Aktuell {current_price_cents} Cent, Schwelle {min_price} Cent"
+            logger.debug(
+                f"Auto-Sell Check: Aktuell {current_price_cents} Cent, Schwelle {min_price} Cent"
             )
         if current_price_cents < min_price:
             self.log(
@@ -372,12 +446,15 @@ class PennerBot:
             self.log(f"[FAIL] Auto-Sell Fehler: {e}")
 
     def _save_bottle_price(self, html: str):
-        from datetime import timedelta
         from .models import BottlePrice
         from .parse import parse_bottle_price
 
         current_price = parse_bottle_price(html)
         if current_price == 0:
+            return
+
+        # Keine weiteren Aktionen wenn Preis nicht geändert hat
+        if current_price == self._last_bottle_price:
             return
         try:
             with get_session() as s:
@@ -391,9 +468,10 @@ class PennerBot:
                         ).total_seconds()
                         if time_since_last < 2:
                             return
-                    new_entry = BottlePrice(price_cents=current_price)
-                    s.add(new_entry)
-                    self.log(f"[MONEY] Bottle price changed: {current_price} Cent")
+            new_entry = BottlePrice(price_cents=current_price)
+            s.add(new_entry)
+            self._last_bottle_price = current_price
+            self.log(f"[MONEY] Bottle price changed: {current_price} Cent")
             try:
                 from .events import emit_bottle_price_changed
 
@@ -409,7 +487,6 @@ class PennerBot:
                 self.log(f"[WARN] Failed to save bottle price: {e}")
 
     def _save_money(self, html: str):
-        from datetime import timedelta
         from .models import MoneyHistory
         from .parse import parse_money
 
@@ -442,7 +519,6 @@ class PennerBot:
                 self.log(f"[WARN] Failed to save money: {e}")
 
     def _save_rank(self, rank: int):
-        from datetime import timedelta
         from .models import RankHistory
 
         if rank <= 0:
@@ -467,7 +543,6 @@ class PennerBot:
                 self.log(f"[WARN] Failed to save rank: {e}")
 
     def _save_points(self, points: int):
-        from datetime import timedelta
         from .models import PointsHistory
 
         if points < 0:
@@ -626,7 +701,7 @@ class PennerBot:
     def login(self, username: str, password: str):
         try:
             self.log("[INFO] Logging in as " + username)
-            self.request = self.api_post(
+            response = self.api_post(
                 self.client,
                 "/login/check/",
                 data={
@@ -636,11 +711,11 @@ class PennerBot:
                 },
             )
             success_indicators = [
-                "Profil ansehen" in self.request.text,
-                "/overview/" in self.request.text,
-                "Mein Penner" in self.request.text,
-                self.request.status_code == 200
-                and "login" not in str(self.request.url).lower(),
+                "Profil ansehen" in response.text,
+                "/overview/" in response.text,
+                "Mein Penner" in response.text,
+                response.status_code == 200
+                and "login" not in str(response.url).lower(),
             ]
             if any(success_indicators):
                 self.logged_in = True
@@ -661,9 +736,11 @@ class PennerBot:
                 self._restore_interrupted_workflows()
                 self._start_enabled_activities()
                 try:
-                    self.set_penner_data(self.request.text)
+                    self.set_penner_data(response.text)
                 except Exception as e:
                     self.log(f"[FAIL] Failed to parse penner data: {e}")
+                self._overview_cache = response.text
+                self._overview_cache_time = datetime.now()
                 return True
             else:
                 self.log("[FAIL] Login failed")
@@ -725,7 +802,21 @@ class PennerBot:
         ):
             age = datetime.now() - self._activities_cache_time
             if age.total_seconds() < self._activities_cache_ttl:
-                return self._activities_cache
+                # Adjust seconds_remaining based on elapsed time since cache
+                activities = self._activities_cache.copy()
+                age_seconds = int(age.total_seconds())
+                for activity_type in ["bottles", "skill", "fight"]:
+                    if activity_type in activities and activities[activity_type].get(
+                        "collecting", False
+                    ):
+                        remaining = activities[activity_type].get(
+                            "seconds_remaining", 0
+                        )
+                        new_remaining = max(0, remaining - age_seconds)
+                        activities[activity_type]["seconds_remaining"] = new_remaining
+                        if new_remaining == 0:
+                            activities[activity_type]["collecting"] = False
+                return activities
         try:
             response = self.api_get(self.client, "/activities/")
             activities = parse_activities(response.text)
@@ -1016,7 +1107,9 @@ class PennerBot:
                 if amount_to_eat < 1:
                     continue
                 total_effect = food_effect * amount_to_eat
-                self.log(f"[INFO] 🍽️ Esse {amount_to_eat}x {food_name} (je {food_effect}‰)")
+                self.log(
+                    f"[INFO] 🍽️ Esse {amount_to_eat}x {food_name} (je {food_effect}‰)"
+                )
                 result = self.eat_food(food_name, food_id, food_promille, amount_to_eat)
                 if result.get("success"):
                     current_promille = result.get("new_promille", current_promille)
@@ -1024,7 +1117,9 @@ class PennerBot:
                     food_consumed.append(
                         f"{amount_to_eat}x {food_name} ({total_effect:.2f}‰)"
                     )
-                    self.log(f"[INFO] {food_name} gegessen: Jetzt bei {current_promille:.2f}‰")
+                    self.log(
+                        f"[INFO] {food_name} gegessen: Jetzt bei {current_promille:.2f}‰"
+                    )
             if total_ate:
                 food_str = " + ".join(food_consumed)
                 self.log(
@@ -1285,7 +1380,7 @@ class PennerBot:
                 rotation_enabled = getattr(config, "rotation_enabled", False)
                 rotation_start_with = getattr(config, "rotation_start_with", "bottles")
                 should_start_bottles = (
-                    config.bottles_enabled 
+                    config.bottles_enabled
                     and not self.bottles_running
                     and not (rotation_enabled and rotation_start_with == "fight")
                 )
@@ -1301,7 +1396,7 @@ class PennerBot:
                             f"[AUTO] Failed to start bottle collecting: {result.get('message')}"
                         )
                 should_start_training = (
-                    config.training_enabled 
+                    config.training_enabled
                     and not self.skill_running
                     and not (rotation_enabled and rotation_start_with == "bottles")
                 )
@@ -1354,8 +1449,8 @@ class PennerBot:
                             f"[AUTO] Failed to start training: {result.get('message')}"
                         )
                 should_start_fight = (
-                    config.fight_enabled 
-                    and not self.fight_running 
+                    config.fight_enabled
+                    and not self.fight_running
                     and not self.bottles_running
                     and not (rotation_enabled and rotation_start_with == "bottles")
                 )

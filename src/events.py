@@ -21,7 +21,6 @@ class EventType:
 
 
 class Event:
-
     def __init__(self, event_type: str, data: Dict[str, Any]):
         self.type = event_type
         self.data = data
@@ -86,12 +85,12 @@ class EventBus:
             for queue in self._subscribers[event_type]:
                 try:
                     queue.put_nowait(event)
-                except:
+                except Exception:
                     pass
             for queue in self._all_subscribers:
                 try:
                     queue.put_nowait(event)
-                except:
+                except Exception:
                     pass
 
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:

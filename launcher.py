@@ -1,7 +1,6 @@
 import os
 import sys
 import argparse
-from pathlib import Path
 
 if sys.platform == "win32":
     import codecs
@@ -42,7 +41,6 @@ def start_console_launcher():
     sys.path.insert(0, get_resource_path("."))
     try:
         import threading
-        import time
 
         backend_thread = threading.Thread(target=start_backend, daemon=True)
         backend_thread.start()
@@ -68,9 +66,8 @@ def start_backend():
         else "Starting Backend Server..."
     )
     import uvicorn
-    from server import app
 
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info", access_log=False)
+    uvicorn.run("server:app", host="127.0.0.1", port=8000, log_level="info", access_log=False, workers=1)
 
 
 def start_frontend():
@@ -80,7 +77,6 @@ def start_frontend():
         else "Starting Frontend Server..."
     )
     time.sleep(2)
-    import asyncio
     from aiohttp import ClientSession, web
 
     dist_path = get_resource_path("web/dist")
@@ -152,7 +148,6 @@ def main():
 
 
 if __name__ == "__main__":
-    import threading
     import time
 
     main()

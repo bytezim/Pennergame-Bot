@@ -7,7 +7,6 @@ logger = get_logger(__name__)
 
 
 class PerformanceMonitor:
-
     def __init__(self):
         self.metrics: Dict[str, dict] = {}
         self.cache_hits = 0

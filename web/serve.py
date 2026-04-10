@@ -5,7 +5,6 @@ from aiohttp import ClientSession, web
 
 
 class ProxyServer:
-
     def __init__(self, backend_url: str = "http://127.0.0.1:8000"):
         self.backend_url = backend_url.rstrip("/")
         self.dist_path = Path(__file__).parent / "dist"

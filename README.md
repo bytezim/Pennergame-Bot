@@ -19,8 +19,6 @@
 
 **🎯 Automatisierung für Pennergame.de - Browser-Bot mit Desktop-Interface**
 
-**Current version:** 0.0.4 — defaults updated (bottles/autosell/autodrink/training)
-
 </div>
 
 ---
@@ -32,13 +30,13 @@ PennerBot ist eine **vollständige Desktop-Anwendung** für die Automatisierung 
 ### 🌟 Aktuelle Features
 - ✅ **Automatisiertes Flaschensammeln**
 - ✅ **Weiterbildungen** (ATT, DEF, AGI)
+- ⚔️ Kampf-Automatisierung
+- 🍞 Ausnüchtern mit Brot
+- 📍 Unterstützung weiterer Städte
 
 
 ### 🚧 Geplante Features
-- 📍 Unterstützung weiterer Städte
 - 🏠 Automatisches Haustier-Streunen
-- ⚔️ Kampf-Automatisierung
-- 🍞 Ausnüchtern mit Brot
 - 🛒 Automatischer Nachkauf
 - ❓❓❓
 
