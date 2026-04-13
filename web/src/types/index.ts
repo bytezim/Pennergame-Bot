@@ -128,11 +128,12 @@ export interface BotConfig {
   last_stopped?: string;
 }
 
-export type PageType = 
-  | "dashboard" 
+export type PageType =
+  | "dashboard"
   | "settings"
-  | "stats" 
-  | "tasks" 
-  | "inventory" 
-  | "howto" 
-  | "debug";
+  | "stats"
+  | "tasks"
+  | "inventory"
+  | "howto"
+  | "debug"
+  | "login";

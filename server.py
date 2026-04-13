@@ -1026,7 +1026,7 @@ def event_history(limit: int = 50) -> Dict[str, Any]:
 
 
 @app.get("/api/dashboard")
-@cached(ttl=5, key_prefix="dashboard")
+@cached(ttl=15, key_prefix="dashboard")
 def dashboard_status() -> Dict[str, Any]:
     try:
         current_bot = get_bot()

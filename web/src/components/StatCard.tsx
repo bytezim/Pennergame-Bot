@@ -1,4 +1,12 @@
-import { Stat, StatLabel, StatNumber, StatHelpText, Icon, HStack, Box } from "@chakra-ui/react";
+import {
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Icon,
+  HStack,
+  Box,
+} from "@chakra-ui/react";
 import { IconType } from "react-icons";
 
 interface StatCardProps {
@@ -12,9 +20,9 @@ export const StatCard = ({ label, value, icon, trend }: StatCardProps) => {
   // Dynamische Farbe basierend auf Trend-Wert
   const getTrendColor = (trendValue: string): string => {
     if (!trendValue) return "teal.400";
-    
-    const cleanValue = trendValue.replace(/[^\d+\-]/g, '');
-    
+
+    const cleanValue = trendValue.replace(/[^\d+-]/g, "");
+
     if (cleanValue.includes("+") || trendValue.startsWith("€+")) {
       return "green.400";
     } else if (cleanValue.includes("-") || trendValue.startsWith("€-")) {
@@ -51,7 +59,7 @@ export const StatCard = ({ label, value, icon, trend }: StatCardProps) => {
           </StatLabel>
           <Icon as={icon} color="teal.400" boxSize={5} />
         </HStack>
-        <StatNumber fontSize="2xl" fontWeight="bold" color="white" isTruncated>
+        <StatNumber fontSize="2xl" fontWeight="bold" color="white">
           {value ?? "—"}
         </StatNumber>
         {trend && (

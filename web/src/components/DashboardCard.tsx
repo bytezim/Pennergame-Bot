@@ -1,4 +1,12 @@
-import { Card, CardHeader, CardBody, Heading, HStack, Icon, Box } from "@chakra-ui/react";
+import {
+  Card,
+  CardHeader,
+  CardBody,
+  Heading,
+  HStack,
+  Icon,
+  Box,
+} from "@chakra-ui/react";
 import { IconType } from "react-icons";
 import { ReactNode } from "react";
 
@@ -9,12 +17,21 @@ interface DashboardCardProps {
   action?: ReactNode;
 }
 
-export const DashboardCard = ({ title, icon, children, action }: DashboardCardProps) => {
+export const DashboardCard = ({
+  title,
+  icon,
+  children,
+  action,
+}: DashboardCardProps) => {
   return (
-    <Card className="dashboard-card card-hover fade-in" bg="gray.800" borderColor="whiteAlpha.200">
+    <Card
+      className="dashboard-card card-hover fade-in"
+      bg="gray.800"
+      borderColor="whiteAlpha.200"
+    >
       <CardHeader pb={3}>
         <HStack justify="space-between" align="center">
-          <HStack spacing={3}>
+          <HStack gap={3}>
             <Icon as={icon} boxSize={6} color="teal.400" />
             <Heading size="md" color="white" fontWeight="semibold">
               {title}

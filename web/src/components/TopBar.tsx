@@ -1,11 +1,11 @@
-import { 
-  Box, 
-  Flex, 
-  HStack, 
-  Badge, 
-  Text, 
-  Spinner, 
-  Icon, 
+import {
+  Box,
+  Flex,
+  HStack,
+  Badge,
+  Text,
+  Spinner,
+  Icon,
   Button,
   useDisclosure,
   Modal,
@@ -16,9 +16,17 @@ import {
   ModalFooter,
   Tooltip,
   IconButton,
-  useToast
 } from "@chakra-ui/react";
-import { FiCheckCircle, FiXCircle, FiPlay, FiPause, FiLogOut, FiBook, FiPackage, FiRefreshCw } from "react-icons/fi";
+import {
+  FiCheckCircle,
+  FiXCircle,
+  FiPlay,
+  FiPause,
+  FiLogOut,
+  FiBook,
+  FiPackage,
+  FiRefreshCw,
+} from "react-icons/fi";
 import { GiSwordman } from "react-icons/gi";
 import { Status } from "../types";
 import { useState, useEffect } from "react";
@@ -34,25 +42,24 @@ interface TopBarProps {
   onRefresh?: () => void;
 }
 
-export const TopBar = ({ 
-  status, 
-  botRunning, 
-  loading, 
+export const TopBar = ({
+  status,
+  botRunning,
+  loading,
   username,
   onStartBot,
   onStopBot,
   onLogout,
-  onRefresh
+  onRefresh,
 }: TopBarProps) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const toast = useToast();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+
   // Lokale Sekunden-Counter die runterzählen - initialisiere mit aktuellen Werten
   const [localSeconds, setLocalSeconds] = useState({
     skill: status?.activities?.skill_seconds_remaining || 0,
     fight: status?.activities?.fight_seconds_remaining || 0,
-    bottles: status?.activities?.bottles_seconds_remaining || 0
+    bottles: status?.activities?.bottles_seconds_remaining || 0,
   });
 
   // Aktualisiere lokale Counter wenn sich der Status ändert
@@ -61,18 +68,18 @@ export const TopBar = ({
       setLocalSeconds({
         skill: status.activities.skill_seconds_remaining || 0,
         fight: status.activities.fight_seconds_remaining || 0,
-        bottles: status.activities.bottles_seconds_remaining || 0
+        bottles: status.activities.bottles_seconds_remaining || 0,
       });
     }
-  }, [status?.activities?.skill_seconds_remaining, status?.activities?.fight_seconds_remaining, status?.activities?.bottles_seconds_remaining]);
+  }, [status?.activities]);
 
   // Countdown-Timer der jede Sekunde runterzählt
   useEffect(() => {
     const interval = setInterval(() => {
-      setLocalSeconds(prev => ({
+      setLocalSeconds((prev) => ({
         skill: prev.skill > 0 ? prev.skill - 1 : 0,
         fight: prev.fight > 0 ? prev.fight - 1 : 0,
-        bottles: prev.bottles > 0 ? prev.bottles - 1 : 0
+        bottles: prev.bottles > 0 ? prev.bottles - 1 : 0,
       }));
     }, 1000);
 
@@ -103,25 +110,13 @@ export const TopBar = ({
 
   const handleRefresh = async () => {
     if (!onRefresh) return;
-    
+
     setIsRefreshing(true);
     try {
       await onRefresh();
-      toast({
-        title: "Aktualisiert",
-        description: "Status wurde erfolgreich aktualisiert",
-        status: "success",
-        duration: 2000,
-        isClosable: true,
-      });
+      console.log("Status updated successfully");
     } catch (error) {
-      toast({
-        title: "Fehler",
-        description: "Status konnte nicht aktualisiert werden",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
+      console.error("Failed to refresh status:", error);
     } finally {
       setIsRefreshing(false);
     }
@@ -130,22 +125,28 @@ export const TopBar = ({
   return (
     <Box className="topbar">
       <Flex h="100%" px={6} align="center" justify="space-between">
-        <HStack spacing={4}>
+        <HStack gap={4}>
           <Text fontSize="lg" fontWeight="bold" color="white">
             PennerBot Dashboard
           </Text>
-          {loading && <Spinner size="sm" color="teal.300" className="spinner" />}
+          {loading && (
+            <Spinner size="sm" color="teal.300" className="spinner" />
+          )}
         </HStack>
 
-        <HStack spacing={4}>
+        <HStack gap={4}>
           {/* Activity Status Badges */}
           {localSeconds.skill > 0 && (
-            <Tooltip label={`Weiterbildung läuft noch ${formatTime(localSeconds.skill)}`} placement="bottom" hasArrow>
-              <Badge 
-                colorScheme="purple" 
-                fontSize="sm" 
-                px={3} 
-                py={1} 
+            <Tooltip
+              label={`Weiterbildung läuft noch ${formatTime(localSeconds.skill)}`}
+              placement="bottom"
+              hasArrow
+            >
+              <Badge
+                colorScheme="purple"
+                fontSize="sm"
+                px={3}
+                py={1}
                 borderRadius="full"
                 display="flex"
                 alignItems="center"
@@ -153,18 +154,24 @@ export const TopBar = ({
                 className="badge-pulse"
               >
                 <Icon as={FiBook} boxSize={3} />
-                <Text fontFamily="mono" fontWeight="bold">{formatTime(localSeconds.skill)}</Text>
+                <Text fontFamily="mono" fontWeight="bold">
+                  {formatTime(localSeconds.skill)}
+                </Text>
               </Badge>
             </Tooltip>
           )}
 
           {localSeconds.fight > 0 && (
-            <Tooltip label={`Kampf läuft noch ${formatTime(localSeconds.fight)}`} placement="bottom" hasArrow>
-              <Badge 
-                colorScheme="red" 
-                fontSize="sm" 
-                px={3} 
-                py={1} 
+            <Tooltip
+              label={`Kampf läuft noch ${formatTime(localSeconds.fight)}`}
+              placement="bottom"
+              hasArrow
+            >
+              <Badge
+                colorScheme="red"
+                fontSize="sm"
+                px={3}
+                py={1}
                 borderRadius="full"
                 display="flex"
                 alignItems="center"
@@ -172,18 +179,24 @@ export const TopBar = ({
                 className="badge-pulse"
               >
                 <Icon as={GiSwordman} boxSize={4} />
-                <Text fontFamily="mono" fontWeight="bold">{formatTime(localSeconds.fight)}</Text>
+                <Text fontFamily="mono" fontWeight="bold">
+                  {formatTime(localSeconds.fight)}
+                </Text>
               </Badge>
             </Tooltip>
           )}
 
           {localSeconds.bottles > 0 && (
-            <Tooltip label={`Pfandflaschen sammeln läuft noch ${formatTime(localSeconds.bottles)}`} placement="bottom" hasArrow>
-              <Badge 
-                colorScheme="green" 
-                fontSize="sm" 
-                px={3} 
-                py={1} 
+            <Tooltip
+              label={`Pfandflaschen sammeln läuft noch ${formatTime(localSeconds.bottles)}`}
+              placement="bottom"
+              hasArrow
+            >
+              <Badge
+                colorScheme="green"
+                fontSize="sm"
+                px={3}
+                py={1}
                 borderRadius="full"
                 display="flex"
                 alignItems="center"
@@ -191,7 +204,9 @@ export const TopBar = ({
                 className="badge-pulse"
               >
                 <Icon as={FiPackage} boxSize={3} />
-                <Text fontFamily="mono" fontWeight="bold">{formatTime(localSeconds.bottles)}</Text>
+                <Text fontFamily="mono" fontWeight="bold">
+                  {formatTime(localSeconds.bottles)}
+                </Text>
               </Badge>
             </Tooltip>
           )}
@@ -200,23 +215,24 @@ export const TopBar = ({
           <Tooltip label="Status aktualisieren" placement="bottom" hasArrow>
             <IconButton
               aria-label="Status aktualisieren"
-              icon={<Icon as={FiRefreshCw} />}
               size="sm"
               colorScheme="blue"
               variant="ghost"
               onClick={handleRefresh}
               isLoading={isRefreshing}
-              _hover={{ 
+              _hover={{
                 bg: "blue.500",
-                transform: "rotate(180deg)"
+                transform: "rotate(180deg)",
               }}
               transition="all 0.3s"
-            />
+            >
+              <Icon as={FiRefreshCw} />
+            </IconButton>
           </Tooltip>
 
           {/* Bot Control Button */}
-          <Tooltip 
-            label={botRunning ? "Bot stoppen" : "Bot starten"} 
+          <Tooltip
+            label={botRunning ? "Bot stoppen" : "Bot starten"}
             placement="bottom"
             hasArrow
           >
@@ -224,11 +240,11 @@ export const TopBar = ({
               size="sm"
               colorScheme={botRunning ? "red" : "green"}
               onClick={handleBotToggle}
-              leftIcon={<Icon as={botRunning ? FiPause : FiPlay} />}
               className={botRunning ? "badge-pulse btn-glow" : "btn-glow"}
               _hover={{ transform: "translateY(-2px)" }}
               transition="all 0.3s"
             >
+              <Icon as={botRunning ? FiPause : FiPlay} me="2" />
               {botRunning ? "Bot stoppen" : "Bot starten"}
             </Button>
           </Tooltip>
@@ -248,17 +264,17 @@ export const TopBar = ({
           {/* Username with Logout */}
           {username && (
             <Tooltip label="Klicken zum Ausloggen" placement="bottom" hasArrow>
-              <Badge 
-                colorScheme="teal" 
-                fontSize="sm" 
-                px={3} 
-                py={1} 
+              <Badge
+                colorScheme="teal"
+                fontSize="sm"
+                px={3}
+                py={1}
                 borderRadius="full"
                 cursor="pointer"
                 onClick={onOpen}
-                _hover={{ 
+                _hover={{
                   transform: "translateY(-2px)",
-                  boxShadow: "0 4px 12px rgba(56, 178, 172, 0.4)"
+                  boxShadow: "0 4px 12px rgba(56, 178, 172, 0.4)",
                 }}
                 transition="all 0.3s"
                 display="flex"
@@ -287,7 +303,8 @@ export const TopBar = ({
             <Button variant="ghost" mr={3} onClick={onClose} color="white">
               Abbrechen
             </Button>
-            <Button colorScheme="red" onClick={handleLogout} leftIcon={<Icon as={FiLogOut} />}>
+            <Button colorScheme="red" onClick={handleLogout}>
+              <Icon as={FiLogOut} me="2" />
               Ausloggen
             </Button>
           </ModalFooter>

@@ -24,7 +24,7 @@ import { FiDatabase, FiGlobe } from "react-icons/fi";
 import { getApiUrl } from "../utils/api";
 
 interface DbData {
-  [tableName: string]: any[];
+  [tableName: string]: Record<string, unknown>[];
 }
 
 export const DebugPage = () => {
@@ -72,7 +72,10 @@ export const DebugPage = () => {
     }
   };
 
-  const renderTableData = (tableName: string, rows: any[]) => {
+  const renderTableData = (
+    tableName: string,
+    rows: Record<string, unknown>[],
+  ) => {
     if (!rows || rows.length === 0) {
       return (
         <Text color="gray.400" textAlign="center" py={4}>
@@ -116,7 +119,7 @@ export const DebugPage = () => {
   };
 
   return (
-    <VStack align="stretch" spacing={6} className="fade-in">
+    <VStack align="stretch" gap={6} className="fade-in">
       <Heading size="lg" color="white">
         Debug
       </Heading>
@@ -169,7 +172,11 @@ export const DebugPage = () => {
           <Tabs variant="enclosed" colorScheme="teal">
             <TabList>
               {Object.keys(dbData).map((tableName) => (
-                <Tab key={tableName} color="gray.400" _selected={{ color: "white", bg: "teal.600" }}>
+                <Tab
+                  key={tableName}
+                  color="gray.400"
+                  _selected={{ color: "white", bg: "teal.600" }}
+                >
                   {tableName}
                   <Badge ml={2} colorScheme="teal">
                     {dbData[tableName].length}

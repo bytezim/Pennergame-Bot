@@ -6,10 +6,10 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   server: {
-    logLevel: 'silent',
+    logLevel: "silent",
     proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
+      "/api": {
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
         secure: false,
       },
@@ -18,12 +18,24 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-chakra': ['@chakra-ui/react', '@emotion/react', '@emotion/styled'],
-          'vendor-motion': ['framer-motion'],
-          'vendor-recharts': ['recharts'],
-          'vendor-icons': ['react-icons'],
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("react") || id.includes("react-dom")) {
+              return "vendor-react";
+            }
+            if (id.includes("@chakra-ui") || id.includes("@emotion")) {
+              return "vendor-chakra";
+            }
+            if (id.includes("framer-motion")) {
+              return "vendor-motion";
+            }
+            if (id.includes("recharts")) {
+              return "vendor-recharts";
+            }
+            if (id.includes("react-icons")) {
+              return "vendor-icons";
+            }
+          }
         },
       },
     },

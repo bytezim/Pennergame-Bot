@@ -95,7 +95,7 @@ class PennerBot:
                 import time
                 import random
 
-                jitter = random.uniform(0, 0.5)
+                jitter = random.uniform(0, 0.2)  # Reduced jitter from 0.5 to 0.2
                 time.sleep(wait_time + jitter)
         self._last_request_time = datetime.now()
 

@@ -1,5 +1,19 @@
-import { Box, VStack, HStack, Text, Button, Icon, useBreakpointValue } from "@chakra-ui/react";
-import { FiHome, FiActivity, FiSettings, FiTerminal, FiTrendingUp } from "react-icons/fi";
+import {
+  Box,
+  VStack,
+  HStack,
+  Text,
+  Button,
+  Icon,
+  useBreakpointValue,
+} from "@chakra-ui/react";
+import {
+  FiHome,
+  FiActivity,
+  FiSettings,
+  FiTerminal,
+  FiTrendingUp,
+} from "react-icons/fi";
 import { PageType } from "../types";
 
 interface SidebarProps {
@@ -18,7 +32,6 @@ const menuItems = [
 export const Sidebar = ({ currentPage, setCurrentPage }: SidebarProps) => {
   const isMobile = useBreakpointValue({ base: true, md: false });
 
-  // Mobile: Horizontal sticky bar
   if (isMobile) {
     return (
       <Box
@@ -33,19 +46,19 @@ export const Sidebar = ({ currentPage, setCurrentPage }: SidebarProps) => {
         overflowX="auto"
         className="mobile-nav"
       >
-        <HStack spacing={0} py={2} px={3} minW="max-content">
+        <HStack gap={0} py={2} px={3} minW="max-content">
           {menuItems.map((item) => (
             <Button
               key={item.id}
               variant={currentPage === item.id ? "solid" : "ghost"}
               colorScheme={currentPage === item.id ? "teal" : "gray"}
               size="sm"
-              leftIcon={<Icon as={item.icon} />}
               onClick={() => setCurrentPage(item.id)}
               minW="fit-content"
               whiteSpace="nowrap"
               fontSize="xs"
             >
+              <Icon as={item.icon} me="2" />
               {item.label}
             </Button>
           ))}
@@ -54,7 +67,6 @@ export const Sidebar = ({ currentPage, setCurrentPage }: SidebarProps) => {
     );
   }
 
-  // Desktop: Vertical sidebar
   return (
     <Box className="sidebar">
       <VStack align="stretch" spacing={6} p={6}>
@@ -67,14 +79,13 @@ export const Sidebar = ({ currentPage, setCurrentPage }: SidebarProps) => {
           </Text>
         </Box>
 
-        <VStack align="stretch" spacing={2} className="fade-in">
+        <VStack align="stretch" gap={2} className="fade-in">
           {menuItems.map((item, index) => (
             <Button
               key={item.id}
               variant={currentPage === item.id ? "solid" : "ghost"}
               colorScheme={currentPage === item.id ? "teal" : "gray"}
               justifyContent="flex-start"
-              leftIcon={<Icon as={item.icon} boxSize={5} />}
               onClick={() => setCurrentPage(item.id)}
               size="lg"
               _hover={{ bg: "whiteAlpha.200", transform: "translateX(4px)" }}
@@ -82,6 +93,7 @@ export const Sidebar = ({ currentPage, setCurrentPage }: SidebarProps) => {
               style={{ animationDelay: `${index * 0.05}s` }}
               fontWeight={currentPage === item.id ? "bold" : "normal"}
             >
+              <Icon as={item.icon} boxSize={5} me="2" />
               {item.label}
             </Button>
           ))}

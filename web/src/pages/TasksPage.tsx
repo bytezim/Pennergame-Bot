@@ -1,7 +1,7 @@
-import { 
-  VStack, 
-  Text, 
-  Heading, 
+import {
+  VStack,
+  Text,
+  Heading,
   Box,
   Button,
   Select,
@@ -16,18 +16,31 @@ import {
   Stat,
   StatLabel,
   StatNumber,
-  StatHelpText
+  StatHelpText,
 } from "@chakra-ui/react";
 import { DashboardCard } from "../components/DashboardCard";
 import { FiPackage, FiZap, FiBook } from "react-icons/fi";
 import { GiBeerBottle } from "react-icons/gi";
 import { useState, useEffect } from "react";
-import { SkillsData, AvailableSkill, DrinksData, Drink, Status, FoodData, Food } from "../types";
+import {
+  SkillsData,
+  AvailableSkill,
+  DrinksData,
+  Drink,
+  Status,
+  FoodData,
+  Food,
+} from "../types";
 import { getApiUrl } from "../utils/api";
 
 interface TasksPageProps {
   onRefresh?: () => Promise<void>;
   status: Status | null;
+}
+
+interface BottlesInfo {
+  total_earned?: number;
+  last_found?: string;
 }
 
 export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
@@ -36,54 +49,50 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
   const [isPending, setIsPending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
-  const [bottlesInfo, setBottlesInfo] = useState<any>(null);
-  
-  // Pfandflaschen-Inventar State
+  const [bottlesInfo, setBottlesInfo] = useState<BottlesInfo | null>(null);
+
   const [bottleCount, setBottleCount] = useState<number>(0);
   const [bottlePrice, setBottlePrice] = useState<number>(0);
   const [sellAmount, setSellAmount] = useState<number>(1);
   const [isSelling, setIsSelling] = useState(false);
-  
-  // Konzentrationsmodus State
+
   const [concentrationMode, setConcentrationMode] = useState("none");
   const [isConcentrating, setIsConcentrating] = useState(false);
   const [concentrationBoost, setConcentrationBoost] = useState("0");
   const [concentrationActivity, setConcentrationActivity] = useState("Keine");
   const [isConcentrationLoading, setIsConcentrationLoading] = useState(false);
-  
-  // Weiterbildungs State
+
   const [skillsData, setSkillsData] = useState<SkillsData | null>(null);
   const [skillActionLoading, setSkillActionLoading] = useState(false);
   const [skillTimeRemaining, setSkillTimeRemaining] = useState<string>("");
 
-  // Kampf State
   const [isFighting, setIsFighting] = useState(false);
   const [fightActionLoading, setFightActionLoading] = useState(false);
-  const [fightSecondsRemaining, setFightSecondsRemaining] = useState<number | null>(null);
-  
-  // Drinks State
+  const [fightSecondsRemaining, setFightSecondsRemaining] = useState<
+    number | null
+  >(null);
+
   const [drinksData, setDrinksData] = useState<DrinksData | null>(null);
-  const [drinkAmount, setDrinkAmount] = useState<{[key: string]: number}>({});
+  const [drinkAmount, setDrinkAmount] = useState<{ [key: string]: number }>({});
   const [isDrinkLoading, setIsDrinkLoading] = useState(false);
-  
-  // Food State
+
   const [foodData, setFoodData] = useState<FoodData | null>(null);
-  const [foodAmount, setFoodAmount] = useState<{[key: string]: number}>({});
+  const [foodAmount, setFoodAmount] = useState<{ [key: string]: number }>({});
   const [isFoodLoading, setIsFoodLoading] = useState(false);
-  
+
   const toast = useToast();
 
-  // Auto-Update von activities via SSE
   useEffect(() => {
     if (status?.activities) {
       setIsCollecting(status.activities.bottles_running || false);
       setSecondsRemaining(status.activities.bottles_seconds_remaining || null);
       setIsFighting(status.activities.fight_running || false);
-      setFightSecondsRemaining(status.activities.fight_seconds_remaining || null);
+      setFightSecondsRemaining(
+        status.activities.fight_seconds_remaining || null,
+      );
     }
   }, [status?.activities]);
 
-  // Status beim Laden prüfen
   useEffect(() => {
     checkStatusInitial();
     checkBottleInventory();
@@ -93,19 +102,22 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     checkFoodStatusInitial();
   }, []);
 
-  // Timer Countdown
   useEffect(() => {
     if (isCollecting && secondsRemaining !== null && secondsRemaining > 0) {
       const timer = setInterval(() => {
-        setSecondsRemaining(prev => prev !== null && prev > 0 ? prev - 1 : 0);
+        setSecondsRemaining((prev) =>
+          prev !== null && prev > 0 ? prev - 1 : 0,
+        );
       }, 1000);
       return () => clearInterval(timer);
     }
   }, [isCollecting, secondsRemaining]);
 
-  // Skill Timer
   useEffect(() => {
-    if (skillsData?.running_skill && skillsData.running_skill.seconds_remaining > 0) {
+    if (
+      skillsData?.running_skill &&
+      skillsData.running_skill.seconds_remaining > 0
+    ) {
       const interval = setInterval(() => {
         const now = Math.floor(Date.now() / 1000);
         const remaining = skillsData.running_skill!.end_timestamp - now;
@@ -130,8 +142,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         setSecondsRemaining(data.seconds_remaining || null);
         setBottlesInfo(data.bottles_info || null);
       }
-    } catch (error) {
-      console.error("Status check failed:", error);
+    } catch (err) {
+      console.error("Status check failed:", err);
     }
   };
 
@@ -144,14 +156,16 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         setConcentrationActivity(data.mode || "Keine");
         setConcentrationBoost(data.boost_percent || "0");
       }
-    } catch (error) {
-      console.error("Concentration status check failed:", error);
+    } catch (err) {
+      console.error("Concentration status check failed:", err);
     }
   };
 
   const checkStatus = async () => {
     try {
-      const response = await fetch(getApiUrl("/actions/bottles/status?force_refresh=true"));
+      const response = await fetch(
+        getApiUrl("/actions/bottles/status?force_refresh=true"),
+      );
       if (response.ok) {
         const data = await response.json();
         setIsPending(data.pending);
@@ -159,8 +173,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         setSecondsRemaining(data.seconds_remaining || null);
         setBottlesInfo(data.bottles_info || null);
       }
-    } catch (error) {
-      console.error("Status check failed:", error);
+    } catch (err) {
+      console.error("Status check failed:", err);
     }
   };
 
@@ -173,8 +187,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         setBottlePrice(data.price_cents || 0);
         setSellAmount(Math.min(1, data.bottle_count || 0));
       }
-    } catch (error) {
-      console.error("Bottle inventory check failed:", error);
+    } catch (err) {
+      console.error("Bottle inventory check failed:", err);
     }
   };
 
@@ -185,8 +199,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         const data = await response.json();
         setSkillsData(data);
       }
-    } catch (error) {
-      console.error("Skills status check failed:", error);
+    } catch (err) {
+      console.error("Skills status check failed:", err);
     }
   };
 
@@ -197,8 +211,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         const data = await response.json();
         setSkillsData(data);
       }
-    } catch (error) {
-      console.error("Skills status check failed:", error);
+    } catch (err) {
+      console.error("Skills status check failed:", err);
     }
   };
 
@@ -208,15 +222,15 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       if (response.ok) {
         const data = await response.json();
         setDrinksData(data);
-        // Initialisiere drinkAmount für jedes Getränk mit 1
-        const initialAmounts: {[key: string]: number} = {};
+
+        const initialAmounts: { [key: string]: number } = {};
         data.drinks?.forEach((drink: Drink) => {
           initialAmounts[drink.name] = 1;
         });
         setDrinkAmount(initialAmounts);
       }
-    } catch (error) {
-      console.error("Drinks status check failed:", error);
+    } catch (err) {
+      console.error("Drinks status check failed:", err);
     }
   };
 
@@ -227,8 +241,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         const data = await response.json();
         setDrinksData(data);
       }
-    } catch (error) {
-      console.error("Drinks status check failed:", error);
+    } catch (err) {
+      console.error("Drinks status check failed:", err);
     }
   };
 
@@ -238,7 +252,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       const response = await fetch(getApiUrl("/actions/bottles/collect"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ time_minutes: timeMinutes })
+        body: JSON.stringify({ time_minutes: timeMinutes }),
       });
 
       const data = await response.json();
@@ -251,8 +265,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Kein checkStatus() - SSE updated automatisch + onRefresh macht refresh_status
-        // Nur onRefresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -265,7 +278,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -283,7 +296,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     try {
       const response = await fetch(getApiUrl("/actions/bottles/cancel"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
@@ -296,7 +309,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Kein checkStatus() - SSE updated automatisch
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -309,7 +322,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -328,20 +341,19 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       const response = await fetch(getApiUrl("/actions/bottles/sell"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: sellAmount })
+        body: JSON.stringify({ amount: sellAmount }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Update inventory direkt aus Response statt neuem Request
         if (data.bottles_remaining !== undefined) {
           setBottleCount(data.bottles_remaining);
         }
         if (data.current_price !== undefined) {
           setBottlePrice(data.current_price);
         }
-        
+
         toast({
           title: "Verkauft!",
           description: data.message,
@@ -349,11 +361,9 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
+
         await checkStatus();
-        
-        // OPTIMIERUNG: Kein checkBottleInventory() mehr - Daten kommen aus Response!
-        // Nur onRefresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -366,7 +376,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -384,7 +394,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     try {
       const response = await fetch(getApiUrl("/actions/bottles/empty-cart"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
@@ -397,7 +407,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Keine redundanten Checks - SSE + onRefresh genügen
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -410,7 +420,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -428,7 +438,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     try {
       const response = await fetch(getApiUrl("/actions/fight/start"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
@@ -441,8 +451,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Kein checkStatus() - SSE updated automatisch + onRefresh macht refresh_status
-        // Nur onRefresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -455,7 +464,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -475,7 +484,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     try {
       const response = await fetch(getApiUrl("/actions/fight/cancel"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
@@ -488,8 +497,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Kein checkStatus() - SSE updated automatisch + onRefresh macht refresh_status
-        // Nur onRefresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -502,7 +510,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -518,7 +526,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const formatTimeHMS = (seconds: number): string => {
@@ -534,15 +542,14 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       const response = await fetch(getApiUrl("/actions/concentration/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: concentrationMode })
+        body: JSON.stringify({ mode: concentrationMode }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Sofort UI aktualisieren
         setIsConcentrating(true);
-        
+
         toast({
           title: "Konzentration gestartet!",
           description: data.message,
@@ -550,21 +557,21 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
-        // OPTIMIERUNG: Kein checkConcentrationStatus() - SSE updated automatisch
+
         if (onRefresh) {
           await onRefresh();
         }
       } else {
         toast({
           title: "Fehler",
-          description: data.message || "Konzentration konnte nicht gestartet werden",
+          description:
+            data.message || "Konzentration konnte nicht gestartet werden",
           status: "error",
           duration: 5000,
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -582,15 +589,14 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     try {
       const response = await fetch(getApiUrl("/actions/concentration/stop"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Sofort UI aktualisieren
         setIsConcentrating(false);
-        
+
         toast({
           title: "Konzentration beendet!",
           description: data.message,
@@ -598,21 +604,21 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
-        // OPTIMIERUNG: Kein checkConcentrationStatus() - SSE updated automatisch
+
         if (onRefresh) {
           await onRefresh();
         }
       } else {
         toast({
           title: "Fehler",
-          description: data.message || "Konzentration konnte nicht beendet werden",
+          description:
+            data.message || "Konzentration konnte nicht beendet werden",
           status: "error",
           duration: 5000,
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -644,20 +650,21 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        // OPTIMIERUNG: Kein checkSkillsStatus() - SSE updated automatisch
+
         if (onRefresh) {
           await onRefresh();
         }
       } else {
         toast({
           title: "Fehler",
-          description: data.message || "Weiterbildung konnte nicht gestartet werden",
+          description:
+            data.message || "Weiterbildung konnte nicht gestartet werden",
           status: "error",
           duration: 5000,
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -672,7 +679,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
 
   const handleCancelSkill = async () => {
     if (!confirm("Möchtest du wirklich die Weiterbildung abbrechen?")) return;
-    
+
     setSkillActionLoading(true);
     try {
       const response = await fetch(getApiUrl("/skills/cancel"), {
@@ -696,13 +703,14 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       } else {
         toast({
           title: "Fehler",
-          description: data.message || "Weiterbildung konnte nicht abgebrochen werden",
+          description:
+            data.message || "Weiterbildung konnte nicht abgebrochen werden",
           status: "error",
           duration: 5000,
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -717,7 +725,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
 
   const handleDrink = async (drink: Drink) => {
     const amount = drinkAmount[drink.name] || 1;
-    
+
     setIsDrinkLoading(true);
     try {
       const response = await fetch(getApiUrl("/drinks/use"), {
@@ -727,24 +735,27 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           item_name: drink.name,
           item_id: drink.item_id,
           promille: drink.promille,
-          amount: amount
+          amount: amount,
         }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Aktualisiere lokalen State sofort
-        setDrinksData(prev => prev ? {
-          ...prev,
-          current_promille: data.new_promille,
-          drinks: prev.drinks.map(d => 
-            d.name === drink.name 
-              ? { ...d, count: Math.max(0, d.count - amount) }
-              : d
-          )
-        } : null);
-        
+        setDrinksData((prev) =>
+          prev
+            ? {
+                ...prev,
+                current_promille: data.new_promille,
+                drinks: prev.drinks.map((d) =>
+                  d.name === drink.name
+                    ? { ...d, count: Math.max(0, d.count - amount) }
+                    : d,
+                ),
+              }
+            : null,
+        );
+
         toast({
           title: "Getrunken!",
           description: `${amount}x ${drink.name} getrunken. Neuer Promillewert: ${data.new_promille.toFixed(2)}‰`,
@@ -752,8 +763,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
-        // Refresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -766,7 +776,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -790,12 +800,15 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       const data = await response.json();
 
       if (data.success) {
-        // Aktualisiere lokalen State sofort
-        setDrinksData(prev => prev ? {
-          ...prev,
-          current_promille: data.new_promille
-        } : null);
-        
+        setDrinksData((prev) =>
+          prev
+            ? {
+                ...prev,
+                current_promille: data.new_promille,
+              }
+            : null,
+        );
+
         toast({
           title: "Magen ausgepumpt!",
           description: `${data.message}. Kosten: ${data.cost}. Neuer Promillewert: ${data.new_promille.toFixed(2)}‰`,
@@ -803,8 +816,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
-        // Refresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -817,7 +829,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -836,15 +848,15 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       if (response.ok) {
         const data = await response.json();
         setFoodData(data);
-        // Initialisiere foodAmount für jedes Essen mit 1
-        const initialAmounts: {[key: string]: number} = {};
+
+        const initialAmounts: { [key: string]: number } = {};
         data.food?.forEach((food: Food) => {
           initialAmounts[food.name] = 1;
         });
         setFoodAmount(initialAmounts);
       }
-    } catch (error) {
-      console.error("Food status check failed:", error);
+    } catch (err) {
+      console.error("Food status check failed:", err);
     }
   };
 
@@ -855,14 +867,14 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         const data = await response.json();
         setFoodData(data);
       }
-    } catch (error) {
-      console.error("Food status check failed:", error);
+    } catch (err) {
+      console.error("Food status check failed:", err);
     }
   };
 
   const handleEatFood = async (food: Food) => {
     const amount = foodAmount[food.name] || 1;
-    
+
     setIsFoodLoading(true);
     try {
       const response = await fetch(getApiUrl("/food/eat"), {
@@ -872,28 +884,35 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           item_name: food.name,
           item_id: food.item_id,
           promille: food.promille,
-          amount: amount
+          amount: amount,
         }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Aktualisiere lokalen State sofort
-        setFoodData(prev => prev ? {
-          ...prev,
-          current_promille: data.new_promille,
-          food: prev.food.map(f => 
-            f.name === food.name 
-              ? { ...f, count: Math.max(0, f.count - amount) }
-              : f
-          )
-        } : null);
-        setDrinksData(prev => prev ? {
-          ...prev,
-          current_promille: data.new_promille
-        } : null);
-        
+        setFoodData((prev) =>
+          prev
+            ? {
+                ...prev,
+                current_promille: data.new_promille,
+                food: prev.food.map((f) =>
+                  f.name === food.name
+                    ? { ...f, count: Math.max(0, f.count - amount) }
+                    : f,
+                ),
+              }
+            : null,
+        );
+        setDrinksData((prev) =>
+          prev
+            ? {
+                ...prev,
+                current_promille: data.new_promille,
+              }
+            : null,
+        );
+
         toast({
           title: "Gegessen!",
           description: `${amount}x ${food.name} gegessen. Neuer Promillewert: ${data.new_promille.toFixed(2)}‰`,
@@ -901,8 +920,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
-        // Refresh für finale Synchronisation
+
         if (onRefresh) {
           await onRefresh();
         }
@@ -915,7 +933,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -939,20 +957,27 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
       const data = await response.json();
 
       if (data.success) {
-        // Aktualisiere lokalen State sofort
-        setFoodData(prev => prev ? {
-          ...prev,
-          current_promille: data.current_promille
-        } : null);
-        setDrinksData(prev => prev ? {
-          ...prev,
-          current_promille: data.current_promille
-        } : null);
-        
-        const message = data.ate 
+        setFoodData((prev) =>
+          prev
+            ? {
+                ...prev,
+                current_promille: data.current_promille,
+              }
+            : null,
+        );
+        setDrinksData((prev) =>
+          prev
+            ? {
+                ...prev,
+                current_promille: data.current_promille,
+              }
+            : null,
+        );
+
+        const message = data.ate
           ? `Gegessen: ${data.message}. Neuer Promillewert: ${data.current_promille.toFixed(2)}‰`
           : data.message;
-        
+
         toast({
           title: "Ausnüchtern abgeschlossen!",
           description: message,
@@ -960,12 +985,11 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           duration: 5000,
           isClosable: true,
         });
-        
-        // Refresh für finale Synchronisation (inkl. aktualisierter Inventare)
+
         if (onRefresh) {
           await onRefresh();
         }
-        // Aktualisiere Food-Inventar
+
         await checkFoodStatus();
       } else {
         toast({
@@ -976,7 +1000,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Fehler",
         description: "Verbindung zum Server fehlgeschlagen",
@@ -991,26 +1015,30 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
 
   const getSkillProgressPercent = (): number => {
     if (!skillsData?.running_skill) return 0;
-    const total = skillsData.running_skill.end_timestamp - skillsData.running_skill.start_timestamp;
-    const elapsed = Math.floor(Date.now() / 1000) - skillsData.running_skill.start_timestamp;
+    const total =
+      skillsData.running_skill.end_timestamp -
+      skillsData.running_skill.start_timestamp;
+    const elapsed =
+      Math.floor(Date.now() / 1000) - skillsData.running_skill.start_timestamp;
     return Math.min(100, Math.max(0, (elapsed / total) * 100));
   };
 
   const renderSkillCard = (skill: AvailableSkill) => {
-    const isRunning = skillsData?.running_skill?.skill_type === skill.skill_type;
+    const isRunning =
+      skillsData?.running_skill?.skill_type === skill.skill_type;
     const skillNames: Record<string, string> = {
       att: "🗡️",
       def: "🛡️",
-      agi: "🎯"
+      agi: "🎯",
     };
-    
+
     return (
-      <Box 
-        key={skill.skill_type} 
-        p={4} 
-        bg="gray.700" 
-        borderRadius="md" 
-        borderWidth={isRunning ? 2 : 1} 
+      <Box
+        key={skill.skill_type}
+        p={4}
+        bg="gray.700"
+        borderRadius="md"
+        borderWidth={isRunning ? 2 : 1}
         borderColor={isRunning ? "blue.400" : "gray.600"}
         position="relative"
       >
@@ -1018,14 +1046,16 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           <HStack justify="space-between">
             <HStack>
               <Text fontSize="xl">{skillNames[skill.skill_type]}</Text>
-              <Text fontWeight="bold" color="white">{skill.display_name}</Text>
+              <Text fontWeight="bold" color="white">
+                {skill.display_name}
+              </Text>
             </HStack>
             <Badge colorScheme={isRunning ? "blue" : "gray"}>
               Level {skill.current_level}
               {!skill.max_level && "/∞"}
             </Badge>
           </HStack>
-          
+
           <VStack align="stretch" spacing={1} fontSize="sm">
             <HStack justify="space-between" color="gray.300">
               <Text>Kosten:</Text>
@@ -1048,7 +1078,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
               Weiterbilden
             </Button>
           )}
-          
+
           {isRunning && (
             <Badge colorScheme="blue" fontSize="sm" p={2} textAlign="center">
               Läuft gerade...
@@ -1064,13 +1094,25 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
     { value: 180, label: "3 Stunden" },
     { value: 360, label: "6 Stunden" },
     { value: 540, label: "9 Stunden" },
-    { value: 720, label: "12 Stunden" }
+    { value: 720, label: "12 Stunden" },
   ];
 
   const concentrationModes = [
-    { value: "none", label: "Keine", desc: "20% Weiterbildungsgeschwindigkeit" },
-    { value: "fight", label: "Kämpfen", desc: "Normale Kampfzeiten (sonst +90min) - 15% Weiterbildungsgeschwindigkeit" },
-    { value: "bottles", label: "Pfandflaschensammeln", desc: "100% Ausbeute (sonst 25%) - 10% Weiterbildungsgeschwindigkeit" }
+    {
+      value: "none",
+      label: "Keine",
+      desc: "20% Weiterbildungsgeschwindigkeit",
+    },
+    {
+      value: "fight",
+      label: "Kämpfen",
+      desc: "Normale Kampfzeiten (sonst +90min) - 15% Weiterbildungsgeschwindigkeit",
+    },
+    {
+      value: "bottles",
+      label: "Pfandflaschensammeln",
+      desc: "100% Ausbeute (sonst 25%) - 10% Weiterbildungsgeschwindigkeit",
+    },
   ];
 
   return (
@@ -1102,11 +1144,11 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
 
           {/* Timer beim Sammeln */}
           {isCollecting && secondsRemaining !== null && (
-            <Box 
-              p={4} 
-              bg="green.900" 
-              borderRadius="md" 
-              borderWidth={1} 
+            <Box
+              p={4}
+              bg="green.900"
+              borderRadius="md"
+              borderWidth={1}
               borderColor="green.600"
             >
               <VStack spacing={2} align="stretch">
@@ -1118,15 +1160,15 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                     {formatTime(secondsRemaining)}
                   </Text>
                 </HStack>
-                <Box 
-                  bg="gray.700" 
-                  h="6px" 
-                  borderRadius="full" 
+                <Box
+                  bg="gray.700"
+                  h="6px"
+                  borderRadius="full"
                   overflow="hidden"
                 >
-                  <Box 
-                    bg="green.400" 
-                    h="100%" 
+                  <Box
+                    bg="green.400"
+                    h="100%"
                     w={`${Math.max(0, Math.min(100, (secondsRemaining / (timeMinutes * 60)) * 100))}%`}
                     transition="width 1s linear"
                   />
@@ -1159,7 +1201,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
               _hover={{ borderColor: "gray.500" }}
               size="lg"
             >
-              {timeOptions.map(opt => (
+              {timeOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -1198,11 +1240,17 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           {bottlesInfo && bottlesInfo.total_earned && (
             <Box pt={2}>
               <Text color="gray.400" fontSize="sm">
-                💰 Gesamt erwirtschaftet: <Text as="span" color="green.300" fontWeight="bold">€{bottlesInfo.total_earned}</Text>
+                💰 Gesamt erwirtschaftet:{" "}
+                <Text as="span" color="green.300" fontWeight="bold">
+                  €{bottlesInfo.total_earned}
+                </Text>
               </Text>
               {bottlesInfo.last_found && (
                 <Text color="gray.400" fontSize="sm" mt={1}>
-                  ✨ Letzter Fund: <Text as="span" color="purple.300" fontWeight="bold">{bottlesInfo.last_found}</Text>
+                  ✨ Letzter Fund:{" "}
+                  <Text as="span" color="purple.300" fontWeight="bold">
+                    {bottlesInfo.last_found}
+                  </Text>
                 </Text>
               )}
             </Box>
@@ -1215,27 +1263,47 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
             <Text color="gray.300" fontSize="sm" fontWeight="semibold" mb={3}>
               💰 Pfandflaschen verkaufen
             </Text>
-            
+
             <VStack align="stretch" spacing={3}>
               <HStack justify="space-between">
-                <Text color="gray.400" fontSize="sm">Im Besitz:</Text>
-                <Text color="white" fontWeight="bold">{bottleCount} Flaschen</Text>
+                <Text color="gray.400" fontSize="sm">
+                  Im Besitz:
+                </Text>
+                <Text color="white" fontWeight="bold">
+                  {bottleCount} Flaschen
+                </Text>
               </HStack>
-              
+
               <HStack justify="space-between">
-                <Text color="gray.400" fontSize="sm">Aktueller Preis:</Text>
-                <Text color="green.300" fontWeight="bold">€{(bottlePrice / 100).toFixed(2)}</Text>
+                <Text color="gray.400" fontSize="sm">
+                  Aktueller Preis:
+                </Text>
+                <Text color="green.300" fontWeight="bold">
+                  €{(bottlePrice / 100).toFixed(2)}
+                </Text>
               </HStack>
 
               {bottleCount > 0 && (
                 <>
                   <HStack>
-                    <Text color="gray.400" fontSize="sm">Menge:</Text>
+                    <Text color="gray.400" fontSize="sm">
+                      Menge:
+                    </Text>
                     <Input
                       type="number"
                       size="sm"
                       value={sellAmount}
-                      onChange={(e) => setSellAmount(Math.max(1, Math.min(parseInt(e.target.value) || 1, bottleCount)))}
+                      onChange={(e) =>
+                        setSellAmount(
+                          Math.max(
+                            1,
+                            Math.min(
+                              parseInt(e.target.value) || 1,
+                              bottleCount,
+                            ),
+                          ),
+                        )
+                      }
                       min={1}
                       max={bottleCount}
                       width="100px"
@@ -1250,8 +1318,15 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                     </Button>
                   </HStack>
 
-                  <HStack justify="space-between" bg="green.900" p={2} borderRadius="md">
-                    <Text color="green.300" fontSize="sm">Erlös:</Text>
+                  <HStack
+                    justify="space-between"
+                    bg="green.900"
+                    p={2}
+                    borderRadius="md"
+                  >
+                    <Text color="green.300" fontSize="sm">
+                      Erlös:
+                    </Text>
                     <Text color="white" fontWeight="bold">
                       €{((sellAmount * bottlePrice) / 100).toFixed(2)}
                     </Text>
@@ -1269,7 +1344,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                   </Button>
                 </>
               )}
-              
+
               {bottleCount === 0 && (
                 <Text color="gray.500" fontSize="sm" textAlign="center" py={2}>
                   Keine Flaschen zum Verkaufen
@@ -1293,7 +1368,12 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                 >
                   Einkaufswagen leeren
                 </Button>
-                <Text fontSize="xs" color="orange.300" mt={2} textAlign="center">
+                <Text
+                  fontSize="xs"
+                  color="orange.300"
+                  mt={2}
+                  textAlign="center"
+                >
                   Der Einkaufswagen ist voll und muss geleert werden
                 </Text>
               </Box>
@@ -1372,23 +1452,36 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           {/* Beschreibung */}
           <Box>
             <Text color="gray.300" fontSize="sm" mb={3}>
-              Der Bot sucht automatisch den schwächsten verfügbaren Gegner und greift ihn an.
-              Stelle sicher, dass der Einkaufswagen geleert ist, bevor du kämpfst!
+              Der Bot sucht automatisch den schwächsten verfügbaren Gegner und
+              greift ihn an. Stelle sicher, dass der Einkaufswagen geleert ist,
+              bevor du kämpfst!
             </Text>
           </Box>
 
           {/* Warnung */}
-          <Box p={3} bg="orange.900" borderRadius="md" borderWidth={1} borderColor="orange.600">
+          <Box
+            p={3}
+            bg="orange.900"
+            borderRadius="md"
+            borderWidth={1}
+            borderColor="orange.600"
+          >
             <Text fontSize="xs" color="orange.200">
-              ⚠️ <strong>Wichtig:</strong> Der Einkaufswagen muss vor dem Kampf geleert werden,
-              sonst kann der Angriff nicht gestartet werden.
+              ⚠️ <strong>Wichtig:</strong> Der Einkaufswagen muss vor dem Kampf
+              geleert werden, sonst kann der Angriff nicht gestartet werden.
             </Text>
           </Box>
 
           {/* Aktions-Buttons */}
           {isFighting ? (
             <VStack spacing={3}>
-              <Badge colorScheme="red" fontSize="md" px={3} py={2} textAlign="center">
+              <Badge
+                colorScheme="red"
+                fontSize="md"
+                px={3}
+                py={2}
+                textAlign="center"
+              >
                 ⚔️ Kampf läuft bereits...
               </Badge>
               <Button
@@ -1459,11 +1552,11 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
 
           {/* Info-Box wenn aktiv */}
           {isConcentrating && (
-            <Box 
-              p={4} 
-              bg="purple.900" 
-              borderRadius="md" 
-              borderWidth={1} 
+            <Box
+              p={4}
+              bg="purple.900"
+              borderRadius="md"
+              borderWidth={1}
               borderColor="purple.600"
             >
               <VStack spacing={2} align="stretch">
@@ -1492,7 +1585,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           {/* Beschreibung */}
           <Box>
             <Text color="gray.300" fontSize="sm" mb={3}>
-              Der Konzentrationsmodus beschleunigt Weiterbildungen. Wähle optional eine Nebenbeschäftigung aus.
+              Der Konzentrationsmodus beschleunigt Weiterbildungen. Wähle
+              optional eine Nebenbeschäftigung aus.
             </Text>
           </Box>
 
@@ -1500,7 +1594,12 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
             <>
               {/* Modus auswählen */}
               <Box>
-                <Text color="gray.300" fontSize="sm" mb={2} fontWeight="semibold">
+                <Text
+                  color="gray.300"
+                  fontSize="sm"
+                  mb={2}
+                  fontWeight="semibold"
+                >
                   Nebenbeschäftigung:
                 </Text>
                 <Select
@@ -1512,7 +1611,7 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                   _hover={{ borderColor: "gray.500" }}
                   size="lg"
                 >
-                  {concentrationModes.map(opt => (
+                  {concentrationModes.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label} - {opt.desc}
                     </option>
@@ -1550,9 +1649,16 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                 🛑 Konzentration beenden
               </Button>
 
-              <Box p={3} bg="orange.900" borderRadius="md" borderWidth={1} borderColor="orange.600">
+              <Box
+                p={3}
+                bg="orange.900"
+                borderRadius="md"
+                borderWidth={1}
+                borderColor="orange.600"
+              >
                 <Text fontSize="xs" color="orange.200">
-                  ⚠️ Das Beenden der Konzentration bricht auch laufende Weiterbildungen ab!
+                  ⚠️ Das Beenden der Konzentration bricht auch laufende
+                  Weiterbildungen ab!
                 </Text>
               </Box>
             </>
@@ -1566,11 +1672,11 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           {/* Laufende Weiterbildung */}
           {skillsData?.running_skill && (
             <>
-              <Box 
-                p={4} 
-                bg="blue.900" 
-                borderRadius="md" 
-                borderWidth={1} 
+              <Box
+                p={4}
+                bg="blue.900"
+                borderRadius="md"
+                borderWidth={1}
                 borderColor="blue.600"
               >
                 <VStack spacing={3} align="stretch">
@@ -1580,29 +1686,35 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                         Läuft gerade:
                       </Text>
                       <Text color="white" fontSize="lg" fontWeight="bold">
-                        {skillsData.running_skill.name} - Stufe {skillsData.running_skill.level}
+                        {skillsData.running_skill.name} - Stufe{" "}
+                        {skillsData.running_skill.level}
                       </Text>
                     </VStack>
                     <Badge colorScheme="blue" fontSize="md" px={3} py={1}>
                       {skillTimeRemaining}
                     </Badge>
                   </HStack>
-                  
+
                   <Box>
                     <HStack justify="space-between" mb={2}>
-                      <Text color="blue.300" fontSize="sm">Fortschritt</Text>
-                      <Text color="white" fontWeight="bold">{Math.round(getSkillProgressPercent())}%</Text>
+                      <Text color="blue.300" fontSize="sm">
+                        Fortschritt
+                      </Text>
+                      <Text color="white" fontWeight="bold">
+                        {Math.round(getSkillProgressPercent())}%
+                      </Text>
                     </HStack>
-                    <Progress 
-                      value={getSkillProgressPercent()} 
-                      colorScheme="blue" 
-                      size="sm" 
+                    <Progress
+                      value={getSkillProgressPercent()}
+                      colorScheme="blue"
+                      size="sm"
                       borderRadius="full"
                     />
                   </Box>
 
                   <Text color="gray.300" fontSize="sm">
-                    Voraussichtlich {skillsData.running_skill.expected_points} Punkte
+                    Voraussichtlich {skillsData.running_skill.expected_points}{" "}
+                    Punkte
                   </Text>
 
                   <Button
@@ -1624,16 +1736,20 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
           {/* Info-Text */}
           <Box>
             <Text color="gray.300" fontSize="sm" mb={3}>
-              Trainiere Angriff, Verteidigung oder Geschicklichkeit. 
-              {skillsData?.running_skill && " Du kannst nur eine Weiterbildung gleichzeitig durchführen."}
+              Trainiere Angriff, Verteidigung oder Geschicklichkeit.
+              {skillsData?.running_skill &&
+                " Du kannst nur eine Weiterbildung gleichzeitig durchführen."}
             </Text>
           </Box>
 
           {/* Verfügbare Weiterbildungen */}
           <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-            {skillsData?.available_skills.att && renderSkillCard(skillsData.available_skills.att)}
-            {skillsData?.available_skills.def && renderSkillCard(skillsData.available_skills.def)}
-            {skillsData?.available_skills.agi && renderSkillCard(skillsData.available_skills.agi)}
+            {skillsData?.available_skills.att &&
+              renderSkillCard(skillsData.available_skills.att)}
+            {skillsData?.available_skills.def &&
+              renderSkillCard(skillsData.available_skills.def)}
+            {skillsData?.available_skills.agi &&
+              renderSkillCard(skillsData.available_skills.agi)}
           </SimpleGrid>
 
           {/* Status aktualisieren */}
@@ -1654,30 +1770,42 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         <VStack align="stretch" spacing={4}>
           <Box>
             <Text fontSize="sm" color="gray.400" mb={4}>
-              Trinke Alkohol um deine Laune zu verbessern. Gute Laune verkürzt Weiterbildungen, schlechte Laune verbessert Kämpfe.
+              Trinke Alkohol um deine Laune zu verbessern. Gute Laune verkürzt
+              Weiterbildungen, schlechte Laune verbessert Kämpfe.
             </Text>
-            
+
             {drinksData && (
               <Stat mb={4}>
                 <StatLabel>Aktueller Promillewert</StatLabel>
-                <StatNumber color={
-                  drinksData.current_promille === 0 ? "red.400" :
-                  drinksData.current_promille < 1.5 ? "orange.400" :
-                  drinksData.current_promille < 3.0 ? "green.400" :
-                  drinksData.current_promille < 3.5 ? "yellow.400" : "red.500"
-                }>
+                <StatNumber
+                  color={
+                    drinksData.current_promille === 0
+                      ? "red.400"
+                      : drinksData.current_promille < 1.5
+                        ? "orange.400"
+                        : drinksData.current_promille < 3.0
+                          ? "green.400"
+                          : drinksData.current_promille < 3.5
+                            ? "yellow.400"
+                            : "red.500"
+                  }
+                >
                   {drinksData.current_promille.toFixed(2)}‰
                 </StatNumber>
                 <StatHelpText>
-                  {drinksData.current_promille === 0 ? "😠 Schlechte Laune - aggressiv" :
-                   drinksData.current_promille < 1.5 ? "😐 Leicht gereizt" :
-                   drinksData.current_promille < 3.0 ? "😊 Gute Laune - fühlst dich wohl" :
-                   drinksData.current_promille < 3.5 ? "😵 Noch geht es gut, aber übertreib es nicht!" :
-                   "☠️ Lebensgefahr - Krankenhaus!"}
+                  {drinksData.current_promille === 0
+                    ? "😠 Schlechte Laune - aggressiv"
+                    : drinksData.current_promille < 1.5
+                      ? "😐 Leicht gereizt"
+                      : drinksData.current_promille < 3.0
+                        ? "😊 Gute Laune - fühlst dich wohl"
+                        : drinksData.current_promille < 3.5
+                          ? "😵 Noch geht es gut, aber übertreib es nicht!"
+                          : "☠️ Lebensgefahr - Krankenhaus!"}
                 </StatHelpText>
               </Stat>
             )}
-            
+
             {drinksData && drinksData.current_promille > 0 && (
               <>
                 <Button
@@ -1723,16 +1851,26 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                 >
                   <VStack align="stretch" spacing={3}>
                     <HStack justify="space-between">
-                      <Text fontWeight="bold" fontSize="lg">{drink.name}</Text>
-                      <Badge colorScheme="purple">{drink.count} verfügbar</Badge>
+                      <Text fontWeight="bold" fontSize="lg">
+                        {drink.name}
+                      </Text>
+                      <Badge colorScheme="purple">
+                        {drink.count} verfügbar
+                      </Badge>
                     </HStack>
-                    
+
                     <Text fontSize="sm" color="gray.400">
-                      Wirkung: <Text as="span" color="green.400" fontWeight="bold">+{drink.effect}‰</Text> pro Flasche
+                      Wirkung:{" "}
+                      <Text as="span" color="green.400" fontWeight="bold">
+                        +{drink.effect}‰
+                      </Text>{" "}
+                      pro Flasche
                     </Text>
 
                     <HStack>
-                      <Text fontSize="sm" color="gray.400">Menge:</Text>
+                      <Text fontSize="sm" color="gray.400">
+                        Menge:
+                      </Text>
                       <Input
                         type="number"
                         size="sm"
@@ -1740,10 +1878,18 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                         min={1}
                         max={Math.min(drink.count, 100)}
                         value={drinkAmount[drink.name] || 1}
-                        onChange={(e) => setDrinkAmount({
-                          ...drinkAmount,
-                          [drink.name]: Math.max(1, Math.min(parseInt(e.target.value) || 1, drink.count))
-                        })}
+                        onChange={(e) =>
+                          setDrinkAmount({
+                            ...drinkAmount,
+                            [drink.name]: Math.max(
+                              1,
+                              Math.min(
+                                parseInt(e.target.value) || 1,
+                                drink.count,
+                              ),
+                            ),
+                          })
+                        }
                       />
                       <Button
                         size="sm"
@@ -1786,14 +1932,24 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
         <VStack align="stretch" spacing={4}>
           <Box>
             <Text fontSize="sm" color="gray.400" mb={4}>
-              Esse Nahrung um deinen Promillespiegel zu senken. Perfekt um nach dem Betrinken wieder nüchtern zu werden!
+              Esse Nahrung um deinen Promillespiegel zu senken. Perfekt um nach
+              dem Betrinken wieder nüchtern zu werden!
             </Text>
-            
+
             {foodData && foodData.current_promille > 0 && (
-              <Box p={3} bg="orange.900" borderRadius="md" mb={4} borderWidth={1} borderColor="orange.600">
+              <Box
+                p={3}
+                bg="orange.900"
+                borderRadius="md"
+                mb={4}
+                borderWidth={1}
+                borderColor="orange.600"
+              >
                 <VStack spacing={2}>
                   <HStack justify="space-between" width="full">
-                    <Text color="orange.300" fontWeight="bold">Aktueller Promillewert:</Text>
+                    <Text color="orange.300" fontWeight="bold">
+                      Aktueller Promillewert:
+                    </Text>
                     <Text color="white" fontSize="lg" fontWeight="bold">
                       {foodData.current_promille.toFixed(2)}‰
                     </Text>
@@ -1809,7 +1965,8 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                     🚀 Automatisch auf 0‰ ausnüchtern
                   </Button>
                   <Text fontSize="xs" color="orange.200" textAlign="center">
-                    Wählt automatisch das beste Essen basierend auf Verfügbarkeit und Effizienz
+                    Wählt automatisch das beste Essen basierend auf
+                    Verfügbarkeit und Effizienz
                   </Text>
                 </VStack>
               </Box>
@@ -1831,16 +1988,24 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                 >
                   <VStack align="stretch" spacing={3}>
                     <HStack justify="space-between">
-                      <Text fontWeight="bold" fontSize="lg">{food.name}</Text>
+                      <Text fontWeight="bold" fontSize="lg">
+                        {food.name}
+                      </Text>
                       <Badge colorScheme="green">{food.count} verfügbar</Badge>
                     </HStack>
-                    
+
                     <Text fontSize="sm" color="gray.400">
-                      Wirkung: <Text as="span" color="orange.400" fontWeight="bold">{food.effect}‰</Text> pro Portion
+                      Wirkung:{" "}
+                      <Text as="span" color="orange.400" fontWeight="bold">
+                        {food.effect}‰
+                      </Text>{" "}
+                      pro Portion
                     </Text>
 
                     <HStack>
-                      <Text fontSize="sm" color="gray.400">Menge:</Text>
+                      <Text fontSize="sm" color="gray.400">
+                        Menge:
+                      </Text>
                       <Input
                         type="number"
                         size="sm"
@@ -1848,10 +2013,18 @@ export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
                         min={1}
                         max={Math.min(food.count, 100)}
                         value={foodAmount[food.name] || 1}
-                        onChange={(e) => setFoodAmount({
-                          ...foodAmount,
-                          [food.name]: Math.max(1, Math.min(parseInt(e.target.value) || 1, food.count))
-                        })}
+                        onChange={(e) =>
+                          setFoodAmount({
+                            ...foodAmount,
+                            [food.name]: Math.max(
+                              1,
+                              Math.min(
+                                parseInt(e.target.value) || 1,
+                                food.count,
+                              ),
+                            ),
+                          })
+                        }
                       />
                       <Button
                         size="sm"

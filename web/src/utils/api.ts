@@ -10,12 +10,12 @@ const getApiBaseUrl = (): string => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  
+
   // 2. Development (Vite Proxy)
   if (import.meta.env.DEV) {
-    return '/api';
+    return "/api";
   }
-  
+
   // 3. Production: Nutze gleichen Host wie Frontend
   // Funktioniert wenn Backend auf Port 8000 läuft
   const protocol = window.location.protocol;
@@ -31,20 +31,24 @@ const API_BASE_URL = getApiBaseUrl();
  */
 export const getApiUrl = (endpoint: string): string => {
   // Stelle sicher, dass endpoint mit / beginnt
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
   return `${API_BASE_URL}${cleanEndpoint}`;
 };
 
 export interface ApiError {
   message: string;
   status?: number;
-  details?: any;
+  details?: Record<string, unknown>;
 }
 
 export class NetworkError extends Error {
-  constructor(message: string, public status?: number, public details?: any) {
+  constructor(
+    message: string,
+    public status?: number,
+    public details?: Record<string, unknown>,
+  ) {
     super(message);
-    this.name = 'NetworkError';
+    this.name = "NetworkError";
   }
 }
 
@@ -54,7 +58,7 @@ export class NetworkError extends Error {
 async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
-  timeout: number = 10000
+  timeout: number = 10000,
 ): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
@@ -77,41 +81,41 @@ async function fetchWithTimeout(
  */
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    let errorData: any;
+    let errorData: Record<string, unknown> | undefined;
     try {
       errorData = await response.json();
     } catch {
       throw new NetworkError(
         `HTTP ${response.status}: ${response.statusText}`,
-        response.status
+        response.status,
       );
     }
 
-    throw new NetworkError(
-      errorData.error || errorData.message || 'Request failed',
-      response.status,
-      errorData.details
-    );
+    const errorMsg =
+      (errorData as Record<string, unknown>)?.error ||
+      (errorData as Record<string, unknown>)?.message ||
+      "Request failed";
+    throw new NetworkError(String(errorMsg), response.status, errorData);
   }
 
   try {
     return await response.json();
-  } catch (error) {
-    throw new NetworkError('Failed to parse response');
+  } catch {
+    throw new NetworkError("Failed to parse response");
   }
 }
 
 /**
  * GET request.
  */
-export async function apiGet<T = any>(
+export async function apiGet<T = Record<string, unknown>>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const response = await fetchWithTimeout(url, {
     ...options,
-    method: 'GET',
+    method: "GET",
   });
   return parseResponse<T>(response);
 }
@@ -119,17 +123,17 @@ export async function apiGet<T = any>(
 /**
  * POST request.
  */
-export async function apiPost<T = any>(
+export async function apiPost<T = Record<string, unknown>>(
   endpoint: string,
-  data?: any,
-  options?: RequestInit
+  data?: Record<string, unknown>,
+  options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const response = await fetchWithTimeout(url, {
     ...options,
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...options?.headers,
     },
     body: data ? JSON.stringify(data) : undefined,
@@ -140,14 +144,14 @@ export async function apiPost<T = any>(
 /**
  * DELETE request.
  */
-export async function apiDelete<T = any>(
+export async function apiDelete<T = Record<string, unknown>>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const response = await fetchWithTimeout(url, {
     ...options,
-    method: 'DELETE',
+    method: "DELETE",
   });
   return parseResponse<T>(response);
 }
@@ -155,17 +159,17 @@ export async function apiDelete<T = any>(
 /**
  * PUT request.
  */
-export async function apiPut<T = any>(
+export async function apiPut<T = Record<string, unknown>>(
   endpoint: string,
-  data?: any,
-  options?: RequestInit
+  data?: Record<string, unknown>,
+  options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const response = await fetchWithTimeout(url, {
     ...options,
-    method: 'PUT',
+    method: "PUT",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...options?.headers,
     },
     body: data ? JSON.stringify(data) : undefined,
@@ -179,7 +183,7 @@ export async function apiPut<T = any>(
 export async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  baseDelay: number = 1000
+  baseDelay: number = 1000,
 ): Promise<T> {
   let lastError: Error;
 
