@@ -73,27 +73,25 @@ def event_handler_worker():
                 logger.info(
                     "Bottle collection completed in game, checking if we need to reschedule..."
                 )
-                # Check if bot is running and bottles are enabled
                 try:
                     with get_session() as s:
                         from src.models import BotConfig
 
                         config = s.query(BotConfig).first()
-                        if config and config.is_running and config.bottles_enabled:
-                            if config.rotation_enabled:
-                                next_activity = "fight"
+                        if config and config.is_running:
+                            if config.fight_enabled:
                                 logger.info(
-                                    f"Rotation enabled - scheduling {next_activity} next"
+                                    "Scheduling fight after bottle completion"
                                 )
                                 _schedule_next_fight_task()
-                            else:
+                            elif config.bottles_enabled:
                                 _schedule_next_bottles_task()
                                 logger.info(
                                     "Rescheduled next bottle collection after game completion"
                                 )
                         else:
                             logger.debug(
-                                "Bot not running or bottles disabled, skipping reschedule"
+                                "Bot not running, skipping bottle completion reschedule"
                             )
                 except Exception as e:
                     logger.error(f"Error rescheduling bottles after completion: {e}")
@@ -126,21 +124,20 @@ def event_handler_worker():
                         from src.models import BotConfig
 
                         config = s.query(BotConfig).first()
-                        if config and config.is_running and config.fight_enabled:
-                            if config.rotation_enabled:
-                                next_activity = "bottles"
+                        if config and config.is_running:
+                            if config.bottles_enabled:
                                 logger.info(
-                                    f"Rotation enabled - scheduling {next_activity} next"
+                                    "Scheduling bottle collection after fight completion"
                                 )
                                 _schedule_next_bottles_task()
-                            else:
+                            elif config.fight_enabled:
                                 _schedule_next_fight_task()
                                 logger.info(
                                     "Rescheduled next fight after game completion"
                                 )
                         else:
                             logger.debug(
-                                "Bot not running or fight disabled, skipping reschedule"
+                                "Bot not running, skipping fight completion reschedule"
                             )
                 except Exception as e:
                     logger.error(f"Error rescheduling after fight completion: {e}")
@@ -340,6 +337,13 @@ def update_bot_config(**kwargs):
             kwargs["bottles_min_price"] = 15
         elif min_price > 25:
             kwargs["bottles_min_price"] = 25
+    for pause_key in ["bottles_pause_minutes", "training_pause_minutes"]:
+        if pause_key in kwargs:
+            pause = kwargs[pause_key]
+            if pause < 1:
+                kwargs[pause_key] = 1
+            elif pause > 60:
+                kwargs[pause_key] = 60
     if "training_skills" in kwargs:
         if isinstance(kwargs["training_skills"], list):
             kwargs["training_skills"] = json.dumps(kwargs["training_skills"])
@@ -385,6 +389,10 @@ def update_bot_config(**kwargs):
         for key, value in kwargs.items():
             if hasattr(config, key):
                 setattr(config, key, value)
+        if config.rotation_enabled and not (
+            config.bottles_enabled and config.fight_enabled
+        ):
+            config.rotation_enabled = False
         s.commit()
 
 
@@ -415,8 +423,11 @@ def _bot_collect_bottles_task():
                         from src.models import BotConfig
 
                         config = s.query(BotConfig).first()
-                        if not (config and config.rotation_enabled):
-                            _schedule_next_bottles_task()
+                        if config and not config.rotation_enabled:
+                            if config.fight_enabled:
+                                _schedule_next_fight_task()
+                            else:
+                                _schedule_next_bottles_task()
                     return
         except Exception as e:
             get_bot().log(f"Could not check bottle status: {e}, proceeding with start")
@@ -445,8 +456,14 @@ def _bot_collect_bottles_task():
             from src.models import BotConfig
 
             config = s.query(BotConfig).first()
-            if not (config and config.rotation_enabled):
-                _schedule_next_bottles_task()
+            if config and not config.rotation_enabled:
+                current_bot = get_bot()
+                if current_bot.fight_running:
+                    _schedule_next_bottles_task()
+                elif config.fight_enabled:
+                    _schedule_next_fight_task()
+                else:
+                    _schedule_next_bottles_task()
     except Exception as e:
         get_bot().log(f"Bottles task error: {e}")
         import traceback
@@ -463,9 +480,22 @@ def _schedule_next_bottles_task():
             return
         pause_minutes = config.bottles_pause_minutes
     bot = get_bot()
+    blocked_seconds_remaining = 0
     if bot.fight_running:
-        bot.log("Fight running, not scheduling bottles yet")
-        return
+        blocked_seconds_remaining = int(bot.fight_seconds_remaining or 0)
+        if blocked_seconds_remaining <= 0:
+            try:
+                activities = bot.get_activities_data(use_cache=False)
+                fight_status = activities.get("fight", {})
+                if fight_status.get("running"):
+                    blocked_seconds_remaining = int(
+                        fight_status.get("seconds_remaining", 0) or 0
+                    )
+            except Exception as e:
+                bot.log(f"Error getting fight timer for bottle scheduling: {e}")
+        bot.log(
+            f"Fight running, scheduling bottles after it finishes ({blocked_seconds_remaining}s remaining)"
+        )
     actual_seconds_remaining = 0
     try:
         activities = get_bot().get_activities_data(use_cache=True)
@@ -480,8 +510,9 @@ def _schedule_next_bottles_task():
         get_bot().log(f"Error getting bottle timer: {e}, using configured duration")
         actual_seconds_remaining = 0
     actual_pause_seconds = int(pause_minutes * 60)
-    total_wait = actual_seconds_remaining + actual_pause_seconds
-    actual_duration_minutes = actual_seconds_remaining // 60
+    wait_for_activity = max(actual_seconds_remaining, blocked_seconds_remaining)
+    total_wait = wait_for_activity + actual_pause_seconds
+    actual_duration_minutes = wait_for_activity // 60
     actual_pause_minutes = actual_pause_seconds // 60
     from datetime import datetime, timedelta
 
@@ -619,6 +650,7 @@ def _bot_activity_monitor_task():
                 return
             bottles_enabled = config.bottles_enabled
             training_enabled = config.training_enabled
+            fight_enabled = config.fight_enabled
             bottles_duration = config.bottles_duration_minutes
         result = current_bot.check_interrupted_activities()
         if result.get("interrupted"):
@@ -654,6 +686,9 @@ def _bot_activity_monitor_task():
                             if res.get("success"):
                                 current_bot.log(f"Restarted: {res.get('message', '')}")
                                 activity.was_interrupted = False
+                elif activity_type == "fight" and fight_enabled:
+                    current_bot.log("[MONITOR] Scheduling interrupted fight restart...")
+                    _schedule_next_fight_task()
     except Exception as e:
         get_bot().log(f"Monitor error: {e}")
 
@@ -689,6 +724,12 @@ def manage_scheduler_jobs(config):
         if hasattr(current_bot, "bottles_running") and current_bot.bottles_running
         else False
     )
+    fight_bottle_pair_enabled = (
+        config["is_running"]
+        and config["bottles_enabled"]
+        and config["fight_enabled"]
+        and not config["rotation_enabled"]
+    )
     if config["is_running"]:
         monitor_job = scheduler.get_job(ACTIVITY_MONITOR_JOB_ID)
         if not monitor_job:
@@ -700,7 +741,20 @@ def manage_scheduler_jobs(config):
                 replace_existing=True,
             )
             current_bot.log("[MONITOR] Activity monitor job scheduled")
-    if config["bottles_enabled"] and config["is_running"]:
+    for enabled, job_id in [
+        (config["bottles_enabled"], BOTTLE_JOB_ID),
+        (config["training_enabled"], TRAINING_JOB_ID),
+        (config["fight_enabled"], FIGHT_JOB_ID),
+    ]:
+        if not enabled:
+            job = scheduler.get_job(job_id)
+            if job:
+                job.remove()
+    if (
+        config["bottles_enabled"]
+        and config["is_running"]
+        and not fight_bottle_pair_enabled
+    ):
         if config["rotation_enabled"]:
             if config["rotation_start_with"] == "bottles":
                 bottle_job = scheduler.get_job(BOTTLE_JOB_ID)
@@ -798,7 +852,12 @@ def manage_scheduler_jobs(config):
                 )
                 current_bot.log("[SCHEDULER] Kampf-Job gestartet")
     if not config["is_running"]:
-        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID, FIGHT_JOB_ID]:
+        for job_id in [
+            BOTTLE_JOB_ID,
+            TRAINING_JOB_ID,
+            FIGHT_JOB_ID,
+            ACTIVITY_MONITOR_JOB_ID,
+        ]:
             job = scheduler.get_job(job_id)
             if job:
                 job.remove()
@@ -1678,7 +1737,14 @@ def bot_start() -> Dict[str, Any]:
                             current_bot.log(
                                 f"Failed to restart skill training: {result.get('error', '')}"
                             )
-        if config["bottles_enabled"]:
+        should_start_bottles_now = config["bottles_enabled"] and not (
+            config["fight_enabled"]
+            and (
+                not config["rotation_enabled"]
+                or config["rotation_start_with"] == "fight"
+            )
+        )
+        if should_start_bottles_now:
             try:
                 activities = current_bot.get_activities_data(use_cache=False)
                 bottles_status = activities.get("bottles", {})
@@ -1753,7 +1819,12 @@ def bot_stop() -> Dict[str, Any]:
         from src.events import emit_bot_state_changed
 
         update_bot_config(is_running=False, last_stopped=datetime.now())
-        for job_id in [BOTTLE_JOB_ID, TRAINING_JOB_ID, ACTIVITY_MONITOR_JOB_ID]:
+        for job_id in [
+            BOTTLE_JOB_ID,
+            TRAINING_JOB_ID,
+            FIGHT_JOB_ID,
+            ACTIVITY_MONITOR_JOB_ID,
+        ]:
             job = scheduler.get_job(job_id)
             if job:
                 job.remove()
@@ -1766,7 +1837,7 @@ def bot_stop() -> Dict[str, Any]:
 
 
 class BottleCollectRequest(BaseModel):
-    time_minutes: int = 10
+    time_minutes: int = 60
 
 
 @app.post("/api/actions/bottles/collect")
@@ -1949,7 +2020,10 @@ def _bot_fight_task():
 
                         config = s.query(BotConfig).first()
                         if not (config and config.rotation_enabled):
-                            _schedule_next_fight_task()
+                            if config and config.bottles_enabled:
+                                _schedule_next_bottles_task()
+                            else:
+                                _schedule_next_fight_task()
                     return
         except Exception as e:
             get_bot().log(f"Could not check fight status: {e}, proceeding with start")
@@ -1976,7 +2050,13 @@ def _bot_fight_task():
 
             config = s.query(BotConfig).first()
             if not (config and config.rotation_enabled):
-                _schedule_next_fight_task()
+                current_bot = get_bot()
+                if current_bot.bottles_running:
+                    _schedule_next_fight_task()
+                elif config and config.bottles_enabled:
+                    _schedule_next_bottles_task()
+                else:
+                    _schedule_next_fight_task()
     except Exception as e:
         get_bot().log(f"Error in fight task: {e}")
         import traceback
@@ -1995,9 +2075,22 @@ def _schedule_next_fight_task():
             return
         pause_minutes = config.fight_pause_minutes
     bot = get_bot()
+    blocked_seconds_remaining = 0
     if bot.bottles_running:
-        bot.log("Bottles running, not scheduling fight yet")
-        return
+        blocked_seconds_remaining = int(bot.bottles_seconds_remaining or 0)
+        if blocked_seconds_remaining <= 0:
+            try:
+                activities = bot.get_activities_data(use_cache=False)
+                bottles_status = activities.get("bottles", {})
+                if bottles_status.get("collecting"):
+                    blocked_seconds_remaining = int(
+                        bottles_status.get("seconds_remaining", 0) or 0
+                    )
+            except Exception as e:
+                bot.log(f"Error getting bottle timer for fight scheduling: {e}")
+        bot.log(
+            f"Bottles running, scheduling fight after collection ({blocked_seconds_remaining}s remaining)"
+        )
     actual_seconds_remaining = 0
     try:
         bot = get_bot()
@@ -2014,13 +2107,14 @@ def _schedule_next_fight_task():
 
     pause_variation = random.uniform(0.95, 1.05)
     pause_seconds = int(pause_minutes * 60 * pause_variation)
-    total_wait = actual_seconds_remaining + pause_seconds
+    wait_for_activity = max(actual_seconds_remaining, blocked_seconds_remaining)
+    total_wait = wait_for_activity + pause_seconds
     total_minutes = total_wait / 60
     from datetime import datetime, timedelta
 
     run_date = datetime.now() + timedelta(seconds=total_wait)
     get_bot().log(
-        f"⏰ Next fight in ~{total_minutes:.1f} minutes (fight: {actual_seconds_remaining}s + pause: {pause_seconds}s)"
+        f"⏰ Next fight in ~{total_minutes:.1f} minutes (activity: {wait_for_activity}s + pause: {pause_seconds}s)"
     )
     scheduler.add_job(
         _bot_fight_task,

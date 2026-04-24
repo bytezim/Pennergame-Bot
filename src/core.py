@@ -1379,16 +1379,24 @@ class PennerBot:
                 )
                 rotation_enabled = getattr(config, "rotation_enabled", False)
                 rotation_start_with = getattr(config, "rotation_start_with", "bottles")
+                fight_bottle_pair_enabled = (
+                    config.bottles_enabled
+                    and config.fight_enabled
+                    and not rotation_enabled
+                )
                 should_start_bottles = (
                     config.bottles_enabled
                     and not self.bottles_running
+                    and not fight_bottle_pair_enabled
                     and not (rotation_enabled and rotation_start_with == "fight")
                 )
                 if should_start_bottles:
                     self.log("[AUTO] Starting bottle collecting...")
                     from .tasks import search_bottles
 
-                    result = search_bottles(self, time_minutes=60)
+                    result = search_bottles(
+                        self, time_minutes=config.bottles_duration_minutes
+                    )
                     if result.get("success"):
                         self.log("[AUTO] Bottle collecting started successfully")
                     else:

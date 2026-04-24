@@ -124,6 +124,18 @@ export interface BotConfig {
   bottles_pause_minutes: number;
   bottles_autosell_enabled: boolean;
   bottles_min_price: number;
+  training_enabled: boolean;
+  training_skills: string;
+  training_att_max_level: number;
+  training_def_max_level: number;
+  training_agi_max_level: number;
+  training_pause_minutes: number;
+  training_autodrink_enabled: boolean;
+  training_target_promille: number;
+  fight_enabled: boolean;
+  fight_pause_minutes: number;
+  rotation_enabled: boolean;
+  rotation_start_with: string;
   last_started?: string;
   last_stopped?: string;
 }

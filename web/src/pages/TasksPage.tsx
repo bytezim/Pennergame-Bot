@@ -44,7 +44,7 @@ interface BottlesInfo {
 }
 
 export const TasksPage = ({ onRefresh, status }: TasksPageProps) => {
-  const [timeMinutes, setTimeMinutes] = useState(10);
+  const [timeMinutes, setTimeMinutes] = useState(60);
   const [isCollecting, setIsCollecting] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);

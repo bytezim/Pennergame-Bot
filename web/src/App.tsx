@@ -10,6 +10,7 @@ import { TasksPage } from "./pages/TasksPage";
 import { DebugPage } from "./pages/DebugPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { Status, Penner, Log, PageType } from "./types";
+import { getApiUrl } from "./utils/api";
 
 interface SSEEventData {
   type: string;
@@ -33,7 +34,7 @@ function App() {
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          const response = await fetch("/api/health", {
+          const response = await fetch(getApiUrl("/health"), {
             method: "GET",
             signal: AbortSignal.timeout(3000),
           });
@@ -72,7 +73,7 @@ function App() {
 
     const checkAndRedirect = async () => {
       try {
-        const response = await fetch("/api/status");
+        const response = await fetch(getApiUrl("/status"));
         if (response.ok) {
           const data = await response.json();
           setIsAuthenticated(data.logged_in || false);
@@ -123,7 +124,7 @@ function App() {
         console.log(
           `🔄 Connecting to SSE (attempt ${reconnectAttempts + 1})...`,
         );
-        eventSource = new EventSource("/api/events/stream");
+        eventSource = new EventSource(getApiUrl("/events/stream"));
 
         eventSource.onopen = () => {
           console.log("✅ SSE connected - real-time updates active");
@@ -195,7 +196,7 @@ function App() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const dashboardRes = await fetch("/api/dashboard", {
+      const dashboardRes = await fetch(getApiUrl("/dashboard"), {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -230,7 +231,7 @@ function App() {
         (window as unknown as { __lastLogFetch?: number }).__lastLogFetch || 0;
       if (now - lastLogFetch > 60000) {
         try {
-          const logsRes = await fetch("/api/logs");
+          const logsRes = await fetch(getApiUrl("/logs"));
           if (logsRes.ok) {
             const logsData = await logsRes.json();
             setLogs(logsData.logs || []);
@@ -328,7 +329,7 @@ function App() {
 
   const handleStartBot = useCallback(async () => {
     try {
-      await fetch("/api/bot/start", { method: "POST" });
+      await fetch(getApiUrl("/bot/start"), { method: "POST" });
       console.log("Bot started");
       fetchData();
     } catch (error) {
@@ -338,7 +339,7 @@ function App() {
 
   const handleStopBot = useCallback(async () => {
     try {
-      await fetch("/api/bot/stop", { method: "POST" });
+      await fetch(getApiUrl("/bot/stop"), { method: "POST" });
       console.log("Bot stopped");
       fetchData();
     } catch (error) {
@@ -348,7 +349,7 @@ function App() {
 
   const handleRefresh = useCallback(async () => {
     try {
-      await fetch("/api/status/refresh", { method: "POST" });
+      await fetch(getApiUrl("/status/refresh"), { method: "POST" });
 
       await fetchData();
     } catch (error) {
@@ -359,7 +360,7 @@ function App() {
 
   const handleLogout = useCallback(async () => {
     try {
-      await fetch("/api/logout", { method: "POST" });
+      await fetch(getApiUrl("/logout"), { method: "POST" });
 
       setIsAuthenticated(false);
       setStatus(null);

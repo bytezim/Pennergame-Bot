@@ -5,7 +5,7 @@ from .db import get_session
 from .models import Settings
 
 
-def search_bottles(bot, time_minutes: int = 10):
+def search_bottles(bot, time_minutes: int = 60):
     from .parse import parse_activities, parse_header_counters
     from .constants import VALID_BOTTLE_DURATIONS, DEFAULT_BOTTLE_DURATION
 

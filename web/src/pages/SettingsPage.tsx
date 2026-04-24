@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   VStack,
   HStack,
@@ -41,7 +41,10 @@ interface BotConfigSettings {
   rotation_start_with: string;
 }
 
-const BOTTLE_DURATION_OPTIONS = [10, 30, 60, 180, 360, 540, 720];
+type BotConfigKey = keyof BotConfigSettings;
+type BotConfigValue = BotConfigSettings[BotConfigKey];
+
+const BOTTLE_DURATION_OPTIONS = [60, 180, 360, 540, 720];
 
 const CITIES = [
   { key: "hamburg", name: "Hamburg", url: "https://www.pennergame.de" },
@@ -64,6 +67,97 @@ const TRAINING_SKILLS = [
   { value: "agi", label: "⚡ Geschicklichkeit" },
 ];
 
+const DEFAULT_BOT_CONFIG: BotConfigSettings = {
+  bottles_enabled: false,
+  bottles_duration_minutes: 60,
+  bottles_pause_minutes: 1,
+  bottles_autosell_enabled: false,
+  bottles_min_price: 25,
+  training_enabled: false,
+  training_skills: '["att", "def", "agi"]',
+  training_att_max_level: 999,
+  training_def_max_level: 999,
+  training_agi_max_level: 999,
+  training_pause_minutes: 1,
+  training_autodrink_enabled: false,
+  training_target_promille: 3.5,
+  fight_enabled: false,
+  fight_pause_minutes: 1,
+  rotation_enabled: false,
+  rotation_start_with: "bottles",
+};
+
+const toBoolean = (value: unknown, fallback: boolean): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") return value === "true" || value === "1";
+  return fallback;
+};
+
+const toNumber = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toString = (value: unknown, fallback: string): string =>
+  typeof value === "string" ? value : fallback;
+
+const normalizeBotConfig = (
+  config: Partial<Record<BotConfigKey, unknown>> = {},
+  fallback: BotConfigSettings = DEFAULT_BOT_CONFIG,
+): BotConfigSettings => ({
+  bottles_enabled: toBoolean(config.bottles_enabled, fallback.bottles_enabled),
+  bottles_duration_minutes: toNumber(
+    config.bottles_duration_minutes,
+    fallback.bottles_duration_minutes,
+  ),
+  bottles_pause_minutes: toNumber(
+    config.bottles_pause_minutes,
+    fallback.bottles_pause_minutes,
+  ),
+  bottles_autosell_enabled: toBoolean(
+    config.bottles_autosell_enabled,
+    fallback.bottles_autosell_enabled,
+  ),
+  bottles_min_price: toNumber(config.bottles_min_price, fallback.bottles_min_price),
+  training_enabled: toBoolean(config.training_enabled, fallback.training_enabled),
+  training_skills: toString(config.training_skills, fallback.training_skills),
+  training_att_max_level: toNumber(
+    config.training_att_max_level,
+    fallback.training_att_max_level,
+  ),
+  training_def_max_level: toNumber(
+    config.training_def_max_level,
+    fallback.training_def_max_level,
+  ),
+  training_agi_max_level: toNumber(
+    config.training_agi_max_level,
+    fallback.training_agi_max_level,
+  ),
+  training_pause_minutes: toNumber(
+    config.training_pause_minutes,
+    fallback.training_pause_minutes,
+  ),
+  training_autodrink_enabled: toBoolean(
+    config.training_autodrink_enabled,
+    fallback.training_autodrink_enabled,
+  ),
+  training_target_promille: toNumber(
+    config.training_target_promille,
+    fallback.training_target_promille,
+  ),
+  fight_enabled: toBoolean(config.fight_enabled, fallback.fight_enabled),
+  fight_pause_minutes: toNumber(
+    config.fight_pause_minutes,
+    fallback.fight_pause_minutes,
+  ),
+  rotation_enabled: toBoolean(config.rotation_enabled, fallback.rotation_enabled),
+  rotation_start_with: toString(
+    config.rotation_start_with,
+    fallback.rotation_start_with,
+  ),
+});
+
 const formatDuration = (minutes: number): string => {
   if (minutes < 60) return `${minutes} Min`;
   if (minutes < 1440) return `${minutes / 60} Std`;
@@ -73,49 +167,64 @@ const formatDuration = (minutes: number): string => {
 export const SettingsPage = () => {
   const [userAgent, setUserAgent] = useState("PennerBot");
   const [city, setCity] = useState("hamburg");
-  const [botConfig, setBotConfig] = useState<BotConfigSettings>({
-    bottles_enabled: false,
-    bottles_duration_minutes: 60,
-    bottles_pause_minutes: 1,
-    bottles_autosell_enabled: false,
-    bottles_min_price: 25,
-    training_enabled: false,
-    training_skills: '["att", "def", "agi"]',
-    training_att_max_level: 999,
-    training_def_max_level: 999,
-    training_agi_max_level: 999,
-    training_pause_minutes: 1,
-    training_autodrink_enabled: false,
-    training_target_promille: 3.5,
-    fight_enabled: false,
-    fight_pause_minutes: 1,
-    rotation_enabled: false,
-    rotation_start_with: "bottles",
-  });
+  const [botConfig, setBotConfig] =
+    useState<BotConfigSettings>(DEFAULT_BOT_CONFIG);
   const [bottlesExpanded, setBottlesExpanded] = useState(false);
   const [trainingExpanded, setTrainingExpanded] = useState(false);
   const [fightExpanded, setFightExpanded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingKeys, setSavingKeys] = useState<Set<BotConfigKey>>(new Set());
+  const saveSequenceRef = useRef(0);
+  const pendingConfigRef = useRef<
+    Partial<Record<BotConfigKey, { value: BotConfigValue; sequence: number }>>
+  >({});
+
+  const getPendingConfig = (
+    excludeKey?: BotConfigKey,
+    excludeSequence?: number,
+  ): Partial<BotConfigSettings> => {
+    return Object.fromEntries(
+      Object.entries(pendingConfigRef.current)
+        .filter(([key, pending]) => {
+          return !(
+            key === excludeKey &&
+            pending?.sequence === excludeSequence
+          );
+        })
+        .map(([key, pending]) => [key, pending?.value]),
+    ) as Partial<BotConfigSettings>;
+  };
+
+  const isSaving = (key: BotConfigKey): boolean => savingKeys.has(key);
 
   const saveConfig = async (
-    key: keyof BotConfigSettings,
+    key: BotConfigKey,
     value: boolean | number | string,
   ) => {
-    const newConfig = { ...botConfig, [key]: value };
-    setBotConfig(newConfig);
-    setSavingKey(key);
+    const sequence = ++saveSequenceRef.current;
+    pendingConfigRef.current[key] = { value, sequence };
+    setBotConfig((current) => ({ ...current, [key]: value }));
+    setSavingKeys((current) => new Set(current).add(key));
 
     try {
       const response = await fetch(getApiUrl("/bot/config"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newConfig),
+        body: JSON.stringify({ [key]: value }),
       });
       if (!response.ok) {
         console.error("Failed to save config, response:", response.status);
       } else {
         const result = await response.json();
+        if (result.config) {
+          const normalized = normalizeBotConfig(
+            result.config as Partial<Record<BotConfigKey, unknown>>,
+          );
+          setBotConfig({
+            ...normalized,
+            ...getPendingConfig(key, sequence),
+          });
+        }
         console.log(
           "Config saved successfully:",
           key,
@@ -128,12 +237,20 @@ export const SettingsPage = () => {
     } catch (error) {
       console.error("Failed to save:", key, error);
     } finally {
-      setSavingKey(null);
+      if (pendingConfigRef.current[key]?.sequence === sequence) {
+        delete pendingConfigRef.current[key];
+      }
+      setSavingKeys((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
   useEffect(() => {
     loadSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadSettings = async () => {
@@ -146,30 +263,13 @@ export const SettingsPage = () => {
       if (configResponse.ok) {
         const data = await configResponse.json();
         if (data.config) {
-          setBotConfig({
-            bottles_enabled: data.config.bottles_enabled ?? false,
-            bottles_duration_minutes:
-              data.config.bottles_duration_minutes ?? 60,
-            bottles_pause_minutes: data.config.bottles_pause_minutes ?? 1,
-            bottles_autosell_enabled:
-              data.config.bottles_autosell_enabled ?? false,
-            bottles_min_price: data.config.bottles_min_price ?? 25,
-            training_enabled: data.config.training_enabled ?? false,
-            training_skills:
-              data.config.training_skills ?? '["att", "def", "agi"]',
-            training_att_max_level: data.config.training_att_max_level ?? 999,
-            training_def_max_level: data.config.training_def_max_level ?? 999,
-            training_agi_max_level: data.config.training_agi_max_level ?? 999,
-            training_pause_minutes: data.config.training_pause_minutes ?? 1,
-            training_autodrink_enabled:
-              data.config.training_autodrink_enabled ?? false,
-            training_target_promille:
-              data.config.training_target_promille ?? 3.5,
-            fight_enabled: data.config.fight_enabled ?? false,
-            fight_pause_minutes: data.config.fight_pause_minutes ?? 1,
-            rotation_enabled: data.config.rotation_enabled ?? false,
-            rotation_start_with: data.config.rotation_start_with ?? "bottles",
-          });
+          const normalized = normalizeBotConfig(
+            data.config as Partial<Record<BotConfigKey, unknown>>,
+          );
+          setBotConfig({ ...normalized, ...getPendingConfig() });
+          setBottlesExpanded(normalized.bottles_enabled);
+          setTrainingExpanded(normalized.training_enabled);
+          setFightExpanded(normalized.fight_enabled);
         }
       }
 
@@ -239,8 +339,9 @@ export const SettingsPage = () => {
               <Switch
                 size="lg"
                 colorScheme="teal"
-                checked={botConfig.bottles_enabled}
-                disabled={savingKey === "bottles_enabled"}
+                isChecked={botConfig.bottles_enabled}
+                isDisabled={isSaving("bottles_enabled")}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => {
                   e.stopPropagation();
                   saveConfig("bottles_enabled", e.target.checked);
@@ -327,7 +428,8 @@ export const SettingsPage = () => {
                     <Switch
                       size="md"
                       colorScheme="teal"
-                      checked={botConfig.bottles_autosell_enabled}
+                      isChecked={botConfig.bottles_autosell_enabled}
+                      isDisabled={isSaving("bottles_autosell_enabled")}
                       onChange={(e) =>
                         saveConfig("bottles_autosell_enabled", e.target.checked)
                       }
@@ -399,8 +501,9 @@ export const SettingsPage = () => {
               <Switch
                 size="lg"
                 colorScheme="teal"
-                checked={botConfig.training_enabled}
-                disabled={savingKey === "training_enabled"}
+                isChecked={botConfig.training_enabled}
+                isDisabled={isSaving("training_enabled")}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => {
                   e.stopPropagation();
                   saveConfig("training_enabled", e.target.checked);
@@ -550,7 +653,8 @@ export const SettingsPage = () => {
                     <Switch
                       size="md"
                       colorScheme="purple"
-                      checked={botConfig.training_autodrink_enabled}
+                      isChecked={botConfig.training_autodrink_enabled}
+                      isDisabled={isSaving("training_autodrink_enabled")}
                       onChange={(e) =>
                         saveConfig(
                           "training_autodrink_enabled",
@@ -654,8 +758,9 @@ export const SettingsPage = () => {
               <Switch
                 size="lg"
                 colorScheme="teal"
-                checked={botConfig.fight_enabled}
-                disabled={savingKey === "fight_enabled"}
+                isChecked={botConfig.fight_enabled}
+                isDisabled={isSaving("fight_enabled")}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => {
                   e.stopPropagation();
                   saveConfig("fight_enabled", e.target.checked);
@@ -737,9 +842,11 @@ export const SettingsPage = () => {
                     <Switch
                       size="md"
                       colorScheme="orange"
-                      checked={botConfig.rotation_enabled}
-                      disabled={
-                        !botConfig.fight_enabled || !botConfig.bottles_enabled
+                      isChecked={botConfig.rotation_enabled}
+                      isDisabled={
+                        isSaving("rotation_enabled") ||
+                        !botConfig.fight_enabled ||
+                        !botConfig.bottles_enabled
                       }
                       onChange={(e) => {
                         if (
@@ -834,7 +941,7 @@ export const SettingsPage = () => {
         <Text fontSize="sm" color="gray.500">
           ✨ Einstellungen werden automatisch gespeichert
         </Text>
-        {savingKey && <Spinner size="sm" color="teal.400" mt={2} />}
+        {savingKeys.size > 0 && <Spinner size="sm" color="teal.400" mt={2} />}
       </Box>
     </VStack>
   );

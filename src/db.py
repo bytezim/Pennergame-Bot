@@ -128,12 +128,29 @@ def _migrate_schema() -> None:
     if "bot_config" in inspector.get_table_names():
         existing = {c["name"] for c in inspector.get_columns("bot_config")}
         to_add = {
+            "is_running": "BOOLEAN DEFAULT 0 NOT NULL",
+            "last_started": "DATETIME",
+            "last_stopped": "DATETIME",
+            "bottles_enabled": "BOOLEAN DEFAULT 0 NOT NULL",
+            "bottles_duration_minutes": "INTEGER DEFAULT 60 NOT NULL",
+            "bottles_pause_minutes": "INTEGER DEFAULT 1 NOT NULL",
+            "bottles_autosell_enabled": "BOOLEAN DEFAULT 0 NOT NULL",
+            "bottles_min_price": "INTEGER DEFAULT 25 NOT NULL",
+            "training_enabled": "BOOLEAN DEFAULT 0 NOT NULL",
+            "training_skills": "VARCHAR DEFAULT '[\"att\", \"def\", \"agi\"]' NOT NULL",
+            "training_att_max_level": "INTEGER DEFAULT 999 NOT NULL",
+            "training_def_max_level": "INTEGER DEFAULT 999 NOT NULL",
+            "training_agi_max_level": "INTEGER DEFAULT 999 NOT NULL",
+            "training_pause_minutes": "INTEGER DEFAULT 1 NOT NULL",
+            "training_autodrink_enabled": "BOOLEAN DEFAULT 0 NOT NULL",
+            "training_target_promille": "FLOAT DEFAULT 3.5 NOT NULL",
+            "fight_enabled": "BOOLEAN DEFAULT 0 NOT NULL",
             "bottles_next_run": "DATETIME",
             "training_next_run": "DATETIME",
             "fight_next_run": "DATETIME",
-            "fight_pause_minutes": "INTEGER DEFAULT 1",
-            "rotation_enabled": "BOOLEAN DEFAULT 0",
-            "rotation_start_with": "VARCHAR DEFAULT 'bottles'",
+            "fight_pause_minutes": "INTEGER DEFAULT 1 NOT NULL",
+            "rotation_enabled": "BOOLEAN DEFAULT 0 NOT NULL",
+            "rotation_start_with": "VARCHAR DEFAULT 'bottles' NOT NULL",
         }
         with engine.connect() as conn:
             transaction = conn.begin()
